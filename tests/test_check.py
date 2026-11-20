@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -177,3 +178,98 @@ def test_holds_reads_amounts_in_dollars_or_cents_and_settings_as_json():
     assert not check.holds({"kind": "amount", "said": "$12.34"}, '"amount_cents": 123400')
     assert check.holds({"kind": "setting", "said": "LEDGER_HANDLER=naive"}, '{"LEDGER_HANDLER": "naive"}')
     assert not check.holds({"kind": "id", "said": "evt_00010"}, "evt_000101")
+
+
+# Version 2 of the checks (written after the live runs; version 1 stays the default and is tested above).
+
+MONEY = {
+    "outcome": "failed",
+    "invariants": [
+        {
+            "name": "posted_exactly_once",
+            "passed": False,
+            "evidence": [
+                {
+                    "event_id": "evt_1",
+                    "type": "payment.succeeded",
+                    "amount_cents": 1697,
+                    "times_posted": 2,
+                    "expected": 1,
+                },
+                {
+                    "event_id": "evt_2",
+                    "type": "payment.succeeded",
+                    "amount_cents": 1929,
+                    "times_posted": 2,
+                    "expected": 1,
+                },
+                {
+                    "event_id": "evt_3",
+                    "type": "refund.succeeded",
+                    "amount_cents": 875,
+                    "times_posted": 3,
+                    "expected": 1,
+                },
+            ],
+        },
+        {"name": "matches_provider", "passed": False, "evidence": [{"ledger_cents": 1, "provider_cents": 2}]},
+    ],
+}
+
+
+def test_money_sums_are_the_extra_money_of_some_findings():
+    sums = check.money_sums(json.dumps(MONEY))
+    assert 1697 + 1929 in sums  # the two payments counted twice
+    assert 1750 in sums  # the refund's two extra postings
+    assert 1697 + 1929 - 1750 in sums  # all of them, signed: what the books are off by
+    assert 1697 + 1929 + 1750 in sums  # all of them, by size
+    assert 9999 not in sums and 1697 * 3 not in sums
+    assert len(sums) <= 2 * (2**3 - 1)
+    assert check.money_sums("not json") == set() and check.money_sums('{"outcome": "could not run"}') == set()
+
+
+def test_version_2_takes_a_sum_of_findings_and_still_refuses_any_other_amount(tmp_path, incidents):
+    folder = incidents / "duplicate-delivery"
+    money = json.loads((folder / "money_check.json").read_text())
+    money["invariants"][0]["evidence"] = MONEY["invariants"][0]["evidence"]
+    (folder / "money_check.json").write_text(json.dumps(money))
+    hypothesis = RIGHT + " The two payments counted twice add $36.26."
+    script = [call("money_check"), diagnose(hypothesis, [("c1", "two payments counted twice add $36.26")])]
+    run_and_check(tmp_path, incidents, "duplicate-delivery", script)
+    run = tmp_path / "duplicate-delivery"
+    one, two = check.check_run(run, incidents, 1), check.check_run(run, incidents, 2)
+    assert not by_name(one)["hypothesis_facts_in_results"]["passed"]  # version 1: $36.26 is in no result
+    assert (
+        by_name(two)["hypothesis_facts_in_results"]["passed"] and by_name(two)["cited_results_hold_the_facts"]["passed"]
+    )
+    assert two["version"] == 2 and "version" not in one
+    (run / "trace.jsonl").write_text((run / "trace.jsonl").read_text().replace("$36.26", "$36.27"))
+    assert not by_name(check.check_run(run, incidents, 2))["hypothesis_facts_in_results"]["passed"]
+
+
+def test_version_2_reads_the_fix_as_a_proposal_not_a_claim(tmp_path, incidents):
+    script = [
+        call("money_check"),
+        diagnose(RIGHT, [("c1", "evt_000101 posted 2 times")], fix_summary="Restore LEDGER_HANDLER=idempotent."),
+    ]
+    run_and_check(tmp_path, incidents, "duplicate-delivery", script)
+    run = tmp_path / "duplicate-delivery"
+    assert not by_name(check.check_run(run, incidents, 1))["hypothesis_facts_in_results"]["passed"]
+    assert by_name(check.check_run(run, incidents, 2))["hypothesis_facts_in_results"]["passed"]
+
+
+def test_version_2_still_refuses_a_fact_cited_to_the_wrong_call(tmp_path, incidents):
+    script = [
+        call("money_check"),
+        call("search_logs", {"contains": "evt_000101"}),
+        diagnose(RIGHT, [("c1", "evt_000101 posted 2 times"), ("c2", "pay_000090 was charged twice")]),
+    ]
+    run_and_check(tmp_path, incidents, "duplicate-delivery", script)
+    assert not by_name(check.check_run(tmp_path / "duplicate-delivery", incidents, 2))["cited_results_hold_the_facts"][
+        "passed"
+    ]
+
+
+def test_no_third_version():
+    with pytest.raises(ValueError):
+        check.check_run(Path("."), version=3)

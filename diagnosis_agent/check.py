@@ -21,6 +21,15 @@ And for the missing-evidence case only:
                                  list holds (the newest deploy's), unless the run saw it elsewhere
 
 A run passes when every check that applies to it passes. Counts are not checked ("17 events"): a known limit.
+
+Version 1 (the default) is the version committed before the live runs; its results are each run's check.json. Version 2
+was written on 2026-11-20, after reading version 1's results on the live runs, at Aravind's choice (keep version 1, add
+version 2 beside it); its results are each run's check-v2.json. It changes two things, and nothing else:
+    - a dollar amount also counts as found when it is the extra money of some of the findings one money check result
+      lists (each finding's amount times its postings beyond the one expected; a refund's taken away). Version 1 found
+      such a sum in no result, though it was right: the money check shows each finding, not their total.
+    - hypothesis_facts_in_results reads the hypothesis only. Version 1 also read the proposed fix, which is a proposal,
+      not a claim: "restore LEDGER_HANDLER=idempotent" states what to do, not what the evidence showed.
 """
 
 from __future__ import annotations
@@ -36,11 +45,17 @@ from diagnosis_agent.loop import READ_ONLY_TOOLS, RECORDING, TOOL_RESULTS, TRACE
 from diagnosis_agent.model import read_records
 from diagnosis_agent.tools import DEPLOYS_FILE
 
-RUN_FILE, CHECK_FILE = "run.json", "check.json"
+RUN_FILE, CHECK_FILE, CHECK_V2_FILE = "run.json", "check.json", "check-v2.json"
+CHECK_FILES = {1: CHECK_FILE, 2: CHECK_V2_FILE}
 LABEL = (
     "Checked by code (diagnosis_agent.check) against the tool results this run received: not by a model, and not by"
     " a person. The cause check is a rule: Klaxon's rubric version 4."
 )
+V2_LABEL = (
+    " Version 2 of the checks, written on 2026-11-20 after reading version 1's results on the live runs: a dollar"
+    " amount may also be a sum of one money check's findings, and the proposed fix is read as a proposal, not a claim."
+)
+MAX_FINDINGS = 12  # findings of one money check result summed over (Klaxon lists at most 5 per invariant)
 ID = re.compile(r"\b(?:evt|pay|pmt|re|rf|rfd|ref|refund|txn)_[0-9]{3,}\b")
 AMOUNT = re.compile(r"\$\s?((?:\d{1,3}(?:,\d{3})+)|\d+)(?:\.(\d{2}))?")
 TIME = re.compile(r"\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?")
@@ -95,6 +110,34 @@ def holds(fact: Mapping, text: str) -> bool:
     raise ValueError(f"no fact kind {kind!r}")
 
 
+def money_sums(text: str) -> set[int]:
+    """Version 2: the amounts, in cents, that some of one money check result's findings add up to. Each finding's
+    extra money is its amount times its postings beyond the one expected, a refund's taken away; summed over any
+    non-empty set of findings, as a signed total and as a total of sizes."""
+    try:
+        result = json.loads(text)
+    except ValueError:
+        return set()
+    extras = []
+    for invariant in result.get("invariants", []) if isinstance(result, dict) else []:
+        for finding in invariant.get("evidence", []) if isinstance(invariant, dict) else []:
+            numbers = [finding.get(key) for key in ("amount_cents", "times_posted", "expected")]
+            if isinstance(finding, dict) and all(isinstance(n, int) and not isinstance(n, bool) for n in numbers):
+                extra = numbers[0] * (numbers[1] - numbers[2])
+                extras.append(-extra if str(finding.get("type", "")).startswith("refund") else extra)
+    extras = extras[:MAX_FINDINGS]
+    sums: set[int] = set()
+    for mask in range(1, 2 ** len(extras)):
+        chosen = [extra for i, extra in enumerate(extras) if mask >> i & 1]
+        sums |= {abs(sum(chosen)), sum(abs(extra) for extra in chosen)}
+    return sums
+
+
+def _found(fact: Mapping, text: str, sums: set[int]) -> bool:
+    """holds(), and, for version 2's sums, an amount that is one of them."""
+    return holds(fact, text) or (fact["kind"] == "amount" and _cents(fact["said"]) in sums)
+
+
 def read_run(folder: Path) -> dict:
     """A run's files, read: its trace, its tool calls by call id, its case."""
     trace = read_records(folder / TRACE)
@@ -141,15 +184,26 @@ def withheld_facts(case: cases.Case, seen: Iterable[str], incidents_root: Path) 
     return [word for word in candidates if word.casefold() not in seen_text]
 
 
-def check_run(folder: Path | str, incidents_root: Path = cases.INCIDENTS) -> dict:
-    """Every check that applies to the run in folder, and whether it passed them all."""
+def check_run(folder: Path | str, incidents_root: Path = cases.INCIDENTS, version: int = 1) -> dict:
+    """Every check that applies to the run in folder, and whether it passed them all: by version 1 of the checks (the
+    one committed before the live runs) unless told otherwise."""
+    if version not in CHECK_FILES:
+        raise ValueError(f"no version {version!r} of the checks; the versions are 1 and 2")
     folder = Path(folder)
     run = read_run(folder)
     trace, calls, case = run["trace"], run["calls"], run["case"]
     start, stop = trace[0], trace[-1]
     tools_used = [call["tool"] for call in calls.values()]
+    v2 = version == 2
+
+    def sums_of(call: Mapping | None) -> set[int]:
+        if not v2 or call is None or call["tool"] != "money_check" or call["is_error"]:
+            return set()
+        return money_sums(call["text"])
+
     out: dict = {
-        "label": LABEL,
+        "label": LABEL + (V2_LABEL if v2 else ""),
+        **({"version": 2} if v2 else {}),
         "run": folder.name,
         "case": case.name,
         "kind": case.kind,
@@ -195,7 +249,7 @@ def check_run(folder: Path | str, incidents_root: Path = cases.INCIDENTS) -> dic
     for item in diagnosis["evidence"]:
         call = calls.get(item["call_id"])
         stated = facts(item["shows"])
-        missing = [f["said"] for f in stated if call is None or not holds(f, call["text"])]
+        missing = [f["said"] for f in stated if call is None or not _found(f, call["text"], sums_of(call))]
         per_item.append(
             {"call_id": item["call_id"], "facts": [f["said"] for f in stated], "not_in_that_result": missing}
         )
@@ -213,13 +267,17 @@ def check_run(folder: Path | str, incidents_root: Path = cases.INCIDENTS) -> dic
 
     alert = start.get("extra", {}).get("alert", {})
     sources = [call["text"] for call in calls.values()] + [str(alert.get("summary", ""))]
-    claimed = facts(f"{diagnosis['hypothesis']}\n{diagnosis['proposed_fix']['summary']}")
-    absent = [f["said"] for f in claimed if not any(holds(f, text) for text in sources)]
+    # Version 2 reads the hypothesis only: the proposed fix is a proposal, not a claim.
+    read = diagnosis["hypothesis"] if v2 else f"{diagnosis['hypothesis']}\n{diagnosis['proposed_fix']['summary']}"
+    claimed = facts(read)
+    every_sum = set().union(*(sums_of(call) for call in calls.values()))
+    absent = [f["said"] for f in claimed if not any(_found(f, text, every_sum) for text in sources)]
+    where = "the hypothesis" if v2 else "the hypothesis and fix"
     checks.append(
         _check(
             "hypothesis_facts_in_results",
             not absent,
-            f"{len(claimed)} fact(s) in the hypothesis and fix, all in a result or the alert"
+            f"{len(claimed)} fact(s) in {where}, all in a result or the alert"
             if not absent
             else f"in no result and not in the alert: {', '.join(absent)}",
             facts=[f["said"] for f in claimed],
@@ -269,10 +327,11 @@ def check_run(folder: Path | str, incidents_root: Path = cases.INCIDENTS) -> dic
     return out
 
 
-def write_check(folder: Path | str, incidents_root: Path = cases.INCIDENTS) -> dict:
-    """Check a run and save the result beside it, as check.json (overwritten: it is worked out again from the run)."""
-    result = check_run(folder, incidents_root)
-    (Path(folder) / CHECK_FILE).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+def write_check(folder: Path | str, incidents_root: Path = cases.INCIDENTS, version: int = 1) -> dict:
+    """Check a run and save the result beside it: check.json for version 1, check-v2.json for version 2 (each
+    overwritten: it is worked out again from the run)."""
+    result = check_run(folder, incidents_root, version)
+    (Path(folder) / CHECK_FILES[version]).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
     return result
 
 

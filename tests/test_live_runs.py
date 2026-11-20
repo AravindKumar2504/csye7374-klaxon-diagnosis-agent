@@ -25,9 +25,11 @@ def test_a_live_run_replays_exactly(tmp_path, folder):
 
 
 @pytest.mark.parametrize("folder", LIVE, ids=[folder.name for folder in LIVE])
-def test_its_saved_check_is_the_check_today(folder):
-    saved = json.loads((folder / check.CHECK_FILE).read_text())
-    assert check.check_run(folder) == saved
+@pytest.mark.parametrize("version", [1, 2])
+def test_its_saved_checks_are_the_checks_today(folder, version):
+    # Version 1's results (check.json) were written when the run ended, by the checks committed before the runs.
+    saved = json.loads((folder / check.CHECK_FILES[version]).read_text())
+    assert check.check_run(folder, version=version) == saved
 
 
 @pytest.mark.parametrize("folder", LIVE, ids=[folder.name for folder in LIVE])

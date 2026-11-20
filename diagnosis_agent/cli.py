@@ -167,7 +167,8 @@ def _run(args: argparse.Namespace, argv: list[str]) -> int:
         json.dumps({"case": case.name, "model": args.model, "header": header, "result": summary}, indent=2) + "\n"
     )
     _print_result(result, folder)
-    checked = check.write_check(folder)
+    check.write_check(folder, version=1)  # the version committed before the live runs, kept for every run
+    checked = check.write_check(folder, version=2)
     _print_check(checked)
     return 0 if checked["passed"] else 1
 
@@ -193,7 +194,10 @@ def _replay(args: argparse.Namespace) -> int:
 def _check(args: argparse.Namespace) -> int:
     failed = 0
     for folder in args.folders:
-        result = check.write_check(folder) if args.write else check.check_run(folder)
+        if args.write:
+            result = check.write_check(folder, version=args.version)
+        else:
+            result = check.check_run(folder, version=args.version)
         print(f"{folder.name}:")
         _print_check(result)
         failed += not result["passed"]
@@ -210,27 +214,71 @@ def run_folders(roots: list[Path]) -> list[Path]:
     return found
 
 
+# Stops that say nothing of the agent's judgment, as Klaxon's evaluation counts them: such a run is "not run".
+NOT_RUN = ("model_error", "tools_failed", "crashed", "interrupted")
+
+
+def usage(folder: Path) -> dict:
+    """A run's model calls, time and cost, from its trace: replies, failed calls, and Claude Code's estimate at API
+    prices (a seat is not billed per call)."""
+    steps = [record for record in check.read_records(folder / loop.TRACE) if record.get("kind") == "step"]
+    replies = [step["reply"] for step in steps if step.get("reply")]
+    return {
+        "replies": len(replies),
+        "failed_calls": sum(1 for step in steps if step.get("error")),
+        "cost_usd": round(sum(reply.get("cost_usd") or 0 for reply in replies), 4),
+    }
+
+
+def _failed(result: dict) -> str:
+    failed = [item["check"] for item in result["checks"] if not item["passed"]]
+    return "passed" if result["passed"] else "failed: " + ", ".join(failed)
+
+
 def _report(args: argparse.Namespace) -> int:
     folders = run_folders(args.folders or [RUNS])
     if not folders:
         print("No runs found.")
         return 1
-    by_case: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    rows = []
     for folder in folders:
-        result = check.check_run(folder)
-        by_case[(result["case"], result["model"])].append(result)
-        failed = [item["check"] for item in result["checks"] if not item["passed"]]
-        print(
-            f"{folder.name}: {result['stop_reason']}, {result['steps']} steps, path {' > '.join(result['path']) or '-'},"
-            f" confidence {result['confidence']}, {'passed' if result['passed'] else 'FAILED ' + ', '.join(failed)}"
-        )
+        one, two = check.check_run(folder, version=1), check.check_run(folder, version=2)
+        rows.append((folder, one, two, usage(folder)))
+    if args.markdown:
+        print("| Run | Case | Stop | Steps | Tool calls | Path | Rule | Checks v1 | Checks v2 | Confidence | Seconds |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|")
+        for folder, one, two, _ in rows:
+            verdict = one.get("cause", {}).get("verdict", "-")
+            stop = "not run: " + one["stop_reason"] if one["stop_reason"] in NOT_RUN else one["stop_reason"]
+            print(
+                f"| {folder.name[:18]} | {one['case']} | {stop} | {one['steps']} | {one['tool_calls']} |"
+                f" {' > '.join(one['path']) or '-'} | {verdict} | {_failed(one)} | {_failed(two)} |"
+                f" {one['confidence'] if one['confidence'] is not None else '-'} | {one['seconds']:.0f} |"
+            )
+    else:
+        for folder, one, two, _ in rows:
+            print(
+                f"{folder.name}: {one['stop_reason']}, {one['steps']} steps, path {' > '.join(one['path']) or '-'},"
+                f" confidence {one['confidence']}; v1 {_failed(one)}; v2 {_failed(two)}"
+            )
     print()
-    for (name, model), results in sorted(by_case.items()):
-        passed = sum(result["passed"] for result in results)
-        named = sum(result.get("cause", {}).get("verdict") == "names the cause" for result in results)
+    by_case: dict[tuple[str, str], list[tuple]] = defaultdict(list)
+    for row in rows:
+        by_case[(row[1]["case"], row[1]["model"])].append(row)
+    for (name, model), group in sorted(by_case.items()):
+        ran = [row for row in group if row[1]["stop_reason"] not in NOT_RUN]
+        named = sum(row[1].get("cause", {}).get("verdict") == "names the cause" for row in ran)
+        one = sum(row[1]["passed"] for row in ran)
+        two = sum(row[2]["passed"] for row in ran)
+        not_run = len(group) - len(ran)
         print(
-            f"{name} on {model}: {passed} of {len(results)} passed every check; the rule says {named} of {len(results)} name the cause"
+            f"{name} on {model}: {len(ran)} runs" + (f" ({not_run} more not run)" if not_run else "") + ";"
+            f" the rule says {named} of {len(ran)} name the cause; every check passed in {one} of {len(ran)} by"
+            f" version 1, {two} of {len(ran)} by version 2"
         )
+    calls = sum(row[3]["replies"] + row[3]["failed_calls"] for row in rows)
+    cost = sum(row[3]["cost_usd"] for row in rows)
+    print(f"In all: {len(rows)} runs, {calls} model calls, ${cost:.2f} at API prices (Claude Code's estimate)")
     return 0
 
 
@@ -255,9 +303,11 @@ def main(argv: list[str] | None = None) -> int:
     again.add_argument("folder", type=Path)
     checks = commands.add_parser("check", help="check runs against their evidence")
     checks.add_argument("folders", type=Path, nargs="+")
-    checks.add_argument("--write", action="store_true", help="save check.json beside each run")
+    checks.add_argument("--write", action="store_true", help="save the result beside each run")
+    checks.add_argument("--version", type=int, choices=(1, 2), default=2, help="version of the checks (default 2)")
     report = commands.add_parser("report", help="one line per run, and counts per case")
     report.add_argument("folders", type=Path, nargs="*")
+    report.add_argument("--markdown", action="store_true", help="a table, for the docs")
     args = parser.parse_args(argv)
     if args.command == "run":
         return _run(args, argv)
