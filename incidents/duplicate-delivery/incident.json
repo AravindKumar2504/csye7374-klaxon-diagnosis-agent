@@ -1,0 +1,57 @@
+{
+  "name": "duplicate-delivery",
+  "title": "Payments counted twice in the books",
+  "label": "Captured from Klaxon's synthetic payments system, live on Docker Compose on this Mac: synthetic data only, no real customers or money. Klaxon's own fault runner injected the fault under synthetic traffic, and Klaxon's own alert rules raised the alert from what the stack showed. At that moment, with the fault in place, this script called Klaxon's own read-only tools in place of a model: money_check and recent_deploys, as their results came back, and every log line Loki held for the four services. No model was called.",
+  "fault": {
+    "name": "duplicate-delivery",
+    "title": "Payments counted twice in the books",
+    "cause": "a deploy of the ledger consumer without its dedupe (LEDGER_HANDLER=naive): every webhook the provider sends again, after an acknowledgement it never got, is booked a second time",
+    "expected_symptoms": [
+      "the money check fails: events counted twice, the books ahead of the provider by their amounts",
+      "the webhook dashboard stays green, and consumer lag stays at 0",
+      "the ledger stops reporting 'already processed' while the confirmer still sees the same duplicates"
+    ],
+    "expected_money": {
+      "during": "failed",
+      "after": "failed",
+      "quiet": "failed"
+    },
+    "remedy": "roll the ledger consumer back to the idempotent handler, then repair each double posting with a reversal (a write, so it needs approval)"
+  },
+  "alert": {
+    "name": "MoneyCheckFailed",
+    "summary": "The money check failed 2 of its 5 invariants: posted_exactly_once (5 findings), matches_provider (6 findings). By its count, our ledger is $116.97 ahead of the provider's balance.",
+    "fired_at": "2026-11-20T07:42:06Z"
+  },
+  "captured": {
+    "klaxon_commit": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "klaxon_code_clean": true,
+    "script": "scripts/capture_incident.py",
+    "command": "python scripts/capture_incident.py duplicate-delivery --out incidents/duplicate-delivery",
+    "started_at_utc": "2026-11-20T07:40:09+00:00",
+    "traffic": {
+      "rate_per_second": 3.0,
+      "seed": 7
+    },
+    "command_paths": "paths shown relative to this repo, and a temporary folder as <tmp>"
+  },
+  "money_check_called_at": "2026-11-20T07:42:07Z",
+  "money_check_seconds": 0.7,
+  "recent_deploys_called_at": "2026-11-20T07:42:08Z",
+  "logs_read_from": "2026-11-20T07:25:09Z",
+  "logs_read_at": "2026-11-20T07:42:10Z",
+  "log_lines": 2467,
+  "log_lines_by_service": {
+    "ledger-consumer": 422,
+    "payment-confirmer": 417,
+    "payments-api": 796,
+    "webhook-receiver": 832
+  },
+  "log_lines_by_service_and_level": {
+    "ledger-consumer INFO": 422,
+    "payment-confirmer INFO": 417,
+    "payments-api ERROR": 10,
+    "payments-api INFO": 786,
+    "webhook-receiver INFO": 832
+  }
+}

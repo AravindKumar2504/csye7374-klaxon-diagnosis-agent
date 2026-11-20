@@ -1,0 +1,98 @@
+{
+  "at": "2026-11-20T07:58:16Z",
+  "deploys": [
+    {
+      "service": "ledger-consumer",
+      "deployed_at": "2026-11-20T07:56:08Z",
+      "minutes_ago": 2.1,
+      "image": "klaxon-patient:dev",
+      "image_id": "sha256:1c4dc5a50056",
+      "settings": {
+        "LEDGER_HANDLER": "idempotent",
+        "BAD_EVENTS": "retry"
+      }
+    },
+    {
+      "service": "fake-provider",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "klaxon-patient:dev",
+      "image_id": "sha256:1c4dc5a50056",
+      "settings": {}
+    },
+    {
+      "service": "kafka",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "apache/kafka:4.3.1",
+      "image_id": "sha256:77e3df905404",
+      "settings": {}
+    },
+    {
+      "service": "kafka-init",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "apache/kafka:4.3.1",
+      "image_id": "sha256:77e3df905404",
+      "settings": {}
+    },
+    {
+      "service": "otel-lgtm",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "grafana/otel-lgtm:0.34.0",
+      "image_id": "sha256:b966ea107831",
+      "settings": {}
+    },
+    {
+      "service": "payment-confirmer",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "klaxon-patient:dev",
+      "image_id": "sha256:1c4dc5a50056",
+      "settings": {
+        "CONFIRMER_HANDLER": "by_our_id",
+        "BAD_EVENTS": "dead_letter"
+      }
+    },
+    {
+      "service": "payments-api",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "klaxon-patient:dev",
+      "image_id": "sha256:1c4dc5a50056",
+      "settings": {
+        "PROVIDER_BREAKER": "on",
+        "CHARGE_AMOUNT_UNIT": "cents",
+        "REFUND_CONNECTION": "returned"
+      }
+    },
+    {
+      "service": "postgres",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "postgres:18.6-alpine",
+      "image_id": "sha256:77f585114c32",
+      "settings": {}
+    },
+    {
+      "service": "redis",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "redis:8.8.3-alpine",
+      "image_id": "sha256:0b2b77d3ea50",
+      "settings": {}
+    },
+    {
+      "service": "webhook-receiver",
+      "deployed_at": "2026-11-20T07:52:06Z",
+      "minutes_ago": 6.2,
+      "image": "klaxon-patient:dev",
+      "image_id": "sha256:1c4dc5a50056",
+      "settings": {
+        "WEBHOOK_SECRET_VERSION": "v1"
+      }
+    }
+  ],
+  "note": "Each container's creation: a deploy, a restart with new settings, or a rollback. Newest first."
+}
