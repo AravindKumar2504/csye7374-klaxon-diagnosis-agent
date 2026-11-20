@@ -56,15 +56,33 @@ Offline, with no model:
 Replay a recorded live run, offline, and check that it reproduces:
 
 ```bash
-.venv/bin/python -m diagnosis_agent replay runs/<a run's folder>
-.venv/bin/python -m diagnosis_agent check runs/<a run's folder>
+.venv/bin/python -m diagnosis_agent replay runs/2026-11-20T091900Z_poison-message_claude-opus-5-5
+.venv/bin/python -m diagnosis_agent check runs/2026-11-20T091900Z_poison-message_claude-opus-5-5
 ```
 
-Live, on a Claude Code login (it makes about 5 to 8 model calls per run):
+Live, on a Claude Code login (the live runs below made 5 to 10 model calls each):
 
 ```bash
 .venv/bin/python -m diagnosis_agent run duplicate-delivery --model claude-opus-5-5
 ```
+
+## Results
+
+Nine live runs on 2026-11-20 UTC: Claude Opus 5.5 (`claude-opus-5-5`) through Claude Code 2.1.326, three per case, on the captured incidents. Every reply and tool result is in `runs/`, and every run replays offline, exactly (`tests/test_live_runs.py`). In all, 73 model calls, $3.58 at API prices by Claude Code's own estimate (the runs used Aravind's seat, which is not billed per call).
+
+| Case | Runs | Names the cause (Klaxon's rule) | Every check passed, version 1 | Every check passed, version 2 |
+|---|---|---|---|---|
+| duplicate-delivery | 3 | 3 of 3 | 0 of 3 | 3 of 3 |
+| poison-message | 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+| missing-deploys | 3 | 3 of 3 | 0 of 3 | 2 of 3 |
+
+- **The agent chose its own path.** Every run started with the money check, to confirm the alert. What came back decided the next step. When the money was wrong (incident 1), it read the deploy list next. When the books could not settle (incident 2), it read the ledger consumer's error logs first. It then searched the logs for the event ids, Kafka offsets and trace ids that earlier results named. Runs took 4 to 8 tool calls and 25 to 65 seconds.
+- **The missing-evidence case.** When `recent_deploys` failed, each run said the deploy list could not be read, and none named the deploy's setting from that list. Two runs found the ledger consumer restarting in `mode=naive` in its own logs instead. One run asked for the deploy list a second time, and it failed again.
+- **Version 1 of the checks** was committed before the runs (each run's `check.json`). It passed 3 of 9. Four runs stated a total they worked out themselves ($134.47, the four payments counted twice). It is right, but no result states it. One named a setting only in its proposed fix. One cited `c8` for `evt_000288`, which is in the result of `c1`, not `c8`.
+- **Version 2** was written after reading those results, and is labeled so (each run's `check-v2.json`). It also accepts a sum of the money check's own findings, and reads the proposed fix as a proposal, not as a claim. It passes 8 of 9. The citation slip still fails.
+- One more run, the second of incident 2, stopped at its first call: the seat's 5-hour limit. It is kept as recorded and counted as not run, and the case was run again after the reset.
+
+`.venv/bin/python -m diagnosis_agent report --markdown` prints every run's row.
 
 ## Sample data
 
