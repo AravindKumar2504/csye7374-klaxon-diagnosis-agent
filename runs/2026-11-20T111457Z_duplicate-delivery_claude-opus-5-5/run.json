@@ -1,0 +1,120 @@
+{
+  "case": "duplicate-delivery",
+  "model": "claude-opus-5-5",
+  "header": {
+    "what": "One run of Klaxon's diagnosis agent on the case duplicate-delivery: claude-opus-5-5 through Claude Code on Aravind's seat (live). Its tools read incident data captured from Klaxon's live stack.",
+    "case": "duplicate-delivery",
+    "model": "claude-opus-5-5",
+    "budgets": {
+      "steps": 10,
+      "tool_calls": 8,
+      "seconds": 600.0,
+      "retries": 2,
+      "model_retries": 1
+    },
+    "rerun_command": "python -m diagnosis_agent run duplicate-delivery --model claude-opus-5-5",
+    "incident": "duplicate-delivery",
+    "incident_data_sha256": {
+      "incident.json": "f2bbdd018fc6303ab5730ad6f631473223f14a16e3349524edc2a8f9ae63add1",
+      "money_check.json": "675d68ef1f5622a993b3bb8370b8e259e3d95feae6b92edf1bf79b51fe836b9b",
+      "recent_deploys.json": "a27f1858749545db11ddf7504342c333ffde151a15329e18049ff73731004158",
+      "logs.jsonl": "1e5aa5699226980b3adc481324d0273fc2f807c83784a5d1ee170c69bb9cc9c0"
+    },
+    "klaxon_commit_copied_from": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "ran_at_utc": "2026-11-20T11:14:57+00:00",
+    "ran_at_local": "2026-11-20T06:14:57-05:00",
+    "python": "3.12.14",
+    "diagnosis_agent_version": "0.1.0",
+    "code_sha256": "f102592a30be59a33b33b7f7d258ce536001c6f19b350b7f2a303e95e4d28b8e",
+    "git_commit": "1e1ad313015711bf55ecd294f2e5e37d30c72ad2",
+    "git_clean_code": true
+  },
+  "result": {
+    "reason": "diagnosed",
+    "detail": "confidence 0.85",
+    "steps": 9,
+    "tool_calls": 7,
+    "seconds": 56.09,
+    "diagnosis": {
+      "hypothesis": "ledger-consumer was recreated at 07:41:36Z, 30s before the alert, with LEDGER_HANDLER=naive. That handler books every Kafka record and does not check whether the provider event_id was already posted. The pipeline is at-least-once: the provider resends webhooks until acknowledged, and webhook-receiver publishes each copy, so one event can sit at several offsets (evt_000308 is at partition 2, offsets 95-97). The ledger booked every copy. payment-confirmer is idempotent and skipped them. The extra entries are $134.47 of duplicate charges minus $17.50 of duplicate refunds, which nets to +$116.97, exactly the matches_provider gap. The ledger stays balanced because each duplicate is a full double entry. Still open: the handler value before this deploy, and why the provider resent. No receiver warnings appeared, so the resends look like ordinary retries.",
+      "evidence": [
+        {
+          "call_id": "c1",
+          "tool": "money_check",
+          "arguments": {},
+          "shows": "The money check fails posted_exactly_once for 5 events (4 posted twice, evt_000308 posted 3 times) and fails matches_provider by +$116.97, which those duplicates explain exactly. The ledger is balanced, and payments and refunds match the provider."
+        },
+        {
+          "call_id": "c2",
+          "tool": "recent_deploys",
+          "arguments": {},
+          "shows": "ledger-consumer was redeployed at 07:41:36Z with LEDGER_HANDLER=naive. All other services date from the 07:39 stack start."
+        },
+        {
+          "call_id": "c3",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "evt_000308",
+            "minutes": 10,
+            "limit": 20
+          },
+          "shows": "ledger-consumer logged 'posted' three times for evt_000308, from provider-events/2 offsets 95, 96 and 97, after its redeploy."
+        },
+        {
+          "call_id": "c4",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "webhook-receiver",
+            "contains": "evt_000308",
+            "minutes": 10,
+            "limit": 20
+          },
+          "shows": "webhook-receiver queued evt_000308 three times (offsets 95-97) between 07:41:41 and 07:41:43, so the duplicates reached the topic."
+        },
+        {
+          "call_id": "c5",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "duplicate",
+            "minutes": 10,
+            "limit": 10
+          },
+          "shows": "ledger-consumer logged no 'duplicate' skip lines, so nothing deduplicated the repeats."
+        },
+        {
+          "call_id": "c6",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "webhook-receiver",
+            "level": "WARNING",
+            "minutes": 10,
+            "limit": 10
+          },
+          "shows": "webhook-receiver logged no warnings, so the resends look like ordinary retries."
+        },
+        {
+          "call_id": "c7",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "payment-confirmer",
+            "contains": "evt_000308",
+            "minutes": 10,
+            "limit": 10
+          },
+          "shows": "payment-confirmer logged 'refund already confirmed' for all three copies of evt_000308. It is idempotent, which isolates the fault to ledger-consumer."
+        }
+      ],
+      "confidence": 0.85,
+      "proposed_fix": {
+        "kind": "config_change",
+        "target": "ledger-consumer (LEDGER_HANDLER)",
+        "summary": "Redeploy ledger-consumer with its previous idempotent LEDGER_HANDLER value, the one that dedups by provider event_id; take the exact value from deploy history or config. Then repair the data: post reversing entries for the duplicate transactions 292, 319, 322, 323, 359 and 381, keeping the first posting of each event. Re-run the money check.",
+        "applied": false
+      },
+      "blast_radius": "During the redeploy, ledger postings pause briefly and lag builds, then drains. The dedup must check existing postings, so it does not skip legitimate events. The reversals touch only the five affected events. Reversing the wrong transaction would leave the books off, so verify each one against c1 first.",
+      "rollback_plan": "To undo the config change, redeploy ledger-consumer with its current image and settings. To undo the repair, post entries that offset the reversals. Re-run the money check after either step."
+    }
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "case": "missing-deploys",
+  "model": "claude-opus-5-5",
+  "header": {
+    "what": "One run of Klaxon's diagnosis agent on the case missing-deploys: claude-opus-5-5 through Claude Code on Aravind's seat (live). Its tools read incident data captured from Klaxon's live stack.",
+    "case": "missing-deploys",
+    "model": "claude-opus-5-5",
+    "budgets": {
+      "steps": 10,
+      "tool_calls": 8,
+      "seconds": 600.0,
+      "retries": 2,
+      "model_retries": 1
+    },
+    "rerun_command": "python -m diagnosis_agent run missing-deploys --model claude-opus-5-5",
+    "incident": "duplicate-delivery",
+    "incident_data_sha256": {
+      "incident.json": "f2bbdd018fc6303ab5730ad6f631473223f14a16e3349524edc2a8f9ae63add1",
+      "money_check.json": "675d68ef1f5622a993b3bb8370b8e259e3d95feae6b92edf1bf79b51fe836b9b",
+      "recent_deploys.json": "a27f1858749545db11ddf7504342c333ffde151a15329e18049ff73731004158",
+      "logs.jsonl": "1e5aa5699226980b3adc481324d0273fc2f807c83784a5d1ee170c69bb9cc9c0"
+    },
+    "klaxon_commit_copied_from": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "ran_at_utc": "2026-11-20T09:19:47+00:00",
+    "ran_at_local": "2026-11-20T04:19:47-05:00",
+    "python": "3.12.14",
+    "diagnosis_agent_version": "0.1.0",
+    "code_sha256": "f102592a30be59a33b33b7f7d258ce536001c6f19b350b7f2a303e95e4d28b8e",
+    "git_commit": "1e1ad313015711bf55ecd294f2e5e37d30c72ad2",
+    "git_clean_code": true
+  },
+  "result": {
+    "reason": "diagnosed",
+    "detail": "confidence 0.6",
+    "steps": 9,
+    "tool_calls": 8,
+    "seconds": 40.423,
+    "diagnosis": {
+      "hypothesis": "ledger-consumer stopped deduplicating redelivered provider events at about 07:41:32-07:41:41. Before then it logged 'already processed' for redelivered copies; the last such skip was evt_000268 at 07:41:32. From evt_000288 onward it posted every copy. The provider redelivers webhooks as designed, and webhook-receiver puts each copy on provider-events at a new offset (evt_000308 at 2@95, 2@96 and 2@97). payment-confirmer skipped those copies as 'already confirmed', so our payments and refunds still match the provider. The ledger booked each copy, though. Four payment.succeeded events were booked twice (+$16.97, +$19.29, +$66.38, +$31.83) and one refund.succeeded was booked three times (-$17.50 extra). Net: the ledger is +$116.97 over the provider, which matches the alert exactly. The cause of the regression is open: a redeploy or setting change of ledger-consumer (such as LEDGER_HANDLER) or a failure of its dedup store. recent_deploys could not be read because Docker did not answer.",
+      "evidence": [
+        {
+          "call_id": "c1",
+          "tool": "money_check",
+          "arguments": {},
+          "shows": "Confirms the alert. Five events were posted 2-3 times (evt_000288, 298, 308, 352, 373), and the ledger is +$116.97 over the provider. The duplicate amounts sum exactly to that (1697+1929+6638+3183-1750 cents). The ledger is balanced, and payments and refunds match the provider."
+        },
+        {
+          "call_id": "c3",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "evt_000308",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "ledger-consumer logged 'posted' for evt_000308 three times, from offsets 2@95, 2@96 and 2@97, each with its own trace_id."
+        },
+        {
+          "call_id": "c4",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "webhook-receiver",
+            "contains": "evt_000308",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "webhook-receiver queued evt_000308 three times between 07:41:41 and 07:41:43. The provider redelivered it, and each copy was given a new Kafka offset."
+        },
+        {
+          "call_id": "c5",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "payment-confirmer",
+            "contains": "evt_000308",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "payment-confirmer saw the same three copies and logged 'refund already confirmed' for each. Its idempotency works; the ledger's does not."
+        },
+        {
+          "call_id": "c8",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "already",
+            "minutes": 120,
+            "limit": 20
+          },
+          "shows": "ledger-consumer did skip duplicates ('already processed') up to evt_000268 at 07:41:32 and has logged no skip since. This dates the loss of dedup to just before the first duplicate, evt_000288."
+        },
+        {
+          "call_id": "c6",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "level": "WARNING",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "ledger-consumer logged no warnings, so its dedup is failing silently."
+        },
+        {
+          "call_id": "c2",
+          "tool": "recent_deploys",
+          "arguments": {},
+          "shows": "recent_deploys failed because Docker did not answer, so I could not confirm a deploy or a LEDGER_HANDLER change (c7 failed the same way)."
+        }
+      ],
+      "confidence": 0.6,
+      "proposed_fix": {
+        "kind": "rollback",
+        "target": "ledger-consumer",
+        "summary": "1) Once Docker answers, check recent_deploys for a ledger-consumer redeploy or a LEDGER_HANDLER change at about 07:41:30. Roll it back to the last version or setting that deduplicated by event_id. If nothing changed there, look at the dedup store it uses. 2) Then repair the data: post reversing entries for the extra transactions, which are 292 (evt_000288), 319 (evt_000298), 322 and 323 (evt_000308), 359 (evt_000352) and the second posting of evt_000373 (381). Leave the first posting of each event. 3) Rerun money_check to confirm all five invariants pass.",
+        "applied": false
+      },
+      "blast_radius": "Rolling back ledger-consumer pauses ledger posting briefly. Events build up in Kafka and are consumed after the restart, but only safely once dedup works again. Payments and refunds are not affected. The reversing entries change ledger balances. Reversing the wrong transaction would itself break matches_provider.",
+      "rollback_plan": "Redeploy the current ledger-consumer image and settings. Undo any reversing entry by posting its opposite. Rerun money_check after each step."
+    }
+  }
+}

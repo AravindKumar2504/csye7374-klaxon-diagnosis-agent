@@ -1,0 +1,40 @@
+{
+  "case": "poison-message",
+  "model": "claude-opus-5-5",
+  "header": {
+    "what": "One run of Klaxon's diagnosis agent on the case poison-message: claude-opus-5-5 through Claude Code on Aravind's seat (live). Its tools read incident data captured from Klaxon's live stack.",
+    "case": "poison-message",
+    "model": "claude-opus-5-5",
+    "budgets": {
+      "steps": 10,
+      "tool_calls": 8,
+      "seconds": 600.0,
+      "retries": 2,
+      "model_retries": 1
+    },
+    "rerun_command": "python -m diagnosis_agent run poison-message --model claude-opus-5-5",
+    "incident": "poison-message",
+    "incident_data_sha256": {
+      "incident.json": "a35cb00f2aaea97d44e3c0ce01cd60e0c9fb5837913dcd8bcd6aa429429aae75",
+      "money_check.json": "60d6fd4a97b54530ff447f0ae5946aee02a92eba66dfad11a3000052edbf5d60",
+      "recent_deploys.json": "f722c525a8e5d1e22400324d1896b1a664f6d9470a6d124c4dd872f762d89ad1",
+      "logs.jsonl": "f3586b42a1b9ea0ef47a8fa989d3cc75f84ed3267104dbbd6213627d7aaea0c3"
+    },
+    "klaxon_commit_copied_from": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "ran_at_utc": "2026-11-20T09:20:55+00:00",
+    "ran_at_local": "2026-11-20T04:20:55-05:00",
+    "python": "3.12.14",
+    "diagnosis_agent_version": "0.1.0",
+    "code_sha256": "f102592a30be59a33b33b7f7d258ce536001c6f19b350b7f2a303e95e4d28b8e",
+    "git_commit": "1e1ad313015711bf55ecd294f2e5e37d30c72ad2",
+    "git_clean_code": true
+  },
+  "result": {
+    "reason": "model_error",
+    "detail": "ModelError: Claude Code reported an error (success): You've hit your 5-hour limit \u00b7 resets 6:10am (America/New_York)",
+    "steps": 2,
+    "tool_calls": 0,
+    "seconds": 1.057,
+    "diagnosis": null
+  }
+}
