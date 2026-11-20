@@ -273,9 +273,9 @@ def main() -> int:
 Aravind Sundaravadivelu. Code, data and every recorded run: <a href="{REPO_URL}">{REPO_URL}</a></p>
 
 <h2>1. The problem, and why it is useful</h2>
-<p>A payment system can fail without going down. In this project's first incident, every service stayed up and kept answering.
-Yet the ledger had booked five events more than once, and our books were $116.97 ahead of the payment provider's records.
-Nothing crashed: a deploy had removed the ledger's dedupe. An on-call engineer has to find causes like this fast, from the
+<p>A payment system can fail without going down. In this project's first incident, nothing crashed. Yet the ledger had booked
+five events more than once, and our books were $116.97 ahead of the payment provider's records: a deploy had removed the
+ledger's dedupe, 30 seconds before the alert. An on-call engineer has to find causes like this fast, from the
 money, the logs and what changed. They must also say what the evidence leaves open, instead of guessing.</p>
 <p>This agent does the first part of that job. An alert fires. An LLM investigates it with three read-only tools, one step at a
 time, and ends with a diagnosis: the cause, the evidence (citing its own tool calls), a confidence, and a proposed fix.
@@ -356,7 +356,9 @@ as not run, and run again after the reset). In all {totals["calls"]} model calls
 Code's own estimate (the runs used Aravind's university seat, which is not billed per call).</p>
 {results}
 <p><b>The cause.</b> Klaxon's rule (rubric version 4, copied unchanged and checked against Klaxon's own) says all 9 runs name the
-recorded cause. In Klaxon, this rule agreed with Aravind's own verdicts on 13 of 13 saved runs. It reads words, not meaning.</p>
+recorded cause. It reads words, not meaning. In Klaxon, it agreed with Aravind's own blind verdicts on 27 of the 40 runs he
+labeled: 13 of 13 in its calibration, but less on the hardest cases, and Klaxon's records call the graders a weak guide on
+missing deploys. So the evidence checks below matter more than the rule's verdict.</p>
 <p><b>Results checked against the evidence.</b> Version 1 of the checks was committed before the runs. It passed 3 of 9. Four
 runs stated a total they had worked out themselves: "$134.47", the four payments counted twice. The sum is right (16.97 +
 19.29 + 66.38 + 31.83), but no result states it, and version 1 only finds facts that a result states. One named a setting only

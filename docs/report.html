@@ -28,9 +28,9 @@ td.q { font-style: italic; }
 Aravind Sundaravadivelu. Code, data and every recorded run: <a href="https://github.com/AravindKumar2504/csye7374-klaxon-diagnosis-agent">https://github.com/AravindKumar2504/csye7374-klaxon-diagnosis-agent</a></p>
 
 <h2>1. The problem, and why it is useful</h2>
-<p>A payment system can fail without going down. In this project's first incident, every service stayed up and kept answering.
-Yet the ledger had booked five events more than once, and our books were $116.97 ahead of the payment provider's records.
-Nothing crashed: a deploy had removed the ledger's dedupe. An on-call engineer has to find causes like this fast, from the
+<p>A payment system can fail without going down. In this project's first incident, nothing crashed. Yet the ledger had booked
+five events more than once, and our books were $116.97 ahead of the payment provider's records: a deploy had removed the
+ledger's dedupe, 30 seconds before the alert. An on-call engineer has to find causes like this fast, from the
 money, the logs and what changed. They must also say what the evidence leaves open, instead of guessing.</p>
 <p>This agent does the first part of that job. An alert fires. An LLM investigates it with three read-only tools, one step at a
 time, and ends with a diagnosis: the cause, the evidence (citing its own tool calls), a confidence, and a proposed fix.
@@ -156,7 +156,9 @@ as not run, and run again after the reset). In all 73 model calls, $3.58 at API 
 Code's own estimate (the runs used Aravind's university seat, which is not billed per call).</p>
 <table class='results'><thead><tr><th>Started (UTC)</th><th>Case</th><th>Stop</th><th>Steps</th><th>Tool calls</th><th>Cause (rule)</th><th>Checks v1</th><th>Checks v2</th><th>Confidence</th><th>Seconds</th></tr></thead><tbody><tr><td>09:18:14</td><td>duplicate-delivery</td><td>diagnosed</td><td>8</td><td>6</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.85</td><td>46</td></tr><tr><td>09:19:00</td><td>poison-message</td><td>diagnosed</td><td>8</td><td>6</td><td>names the cause</td><td>pass</td><td>pass</td><td>0.8</td><td>47</td></tr><tr><td>09:19:47</td><td>missing-deploys</td><td>diagnosed</td><td>9</td><td>8</td><td>names the cause</td><td>fail</td><td>fail</td><td>0.6</td><td>40</td></tr><tr><td>09:20:28</td><td>duplicate-delivery</td><td>diagnosed</td><td>5</td><td>4</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.85</td><td>28</td></tr><tr><td>09:20:55</td><td>poison-message</td><td>not run (seat limit)</td><td>2</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1</td></tr><tr><td>11:13:43</td><td>poison-message</td><td>diagnosed</td><td>5</td><td>4</td><td>names the cause</td><td>pass</td><td>pass</td><td>0.8</td><td>25</td></tr><tr><td>11:14:08</td><td>missing-deploys</td><td>diagnosed</td><td>9</td><td>7</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.85</td><td>49</td></tr><tr><td>11:14:57</td><td>duplicate-delivery</td><td>diagnosed</td><td>9</td><td>7</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.85</td><td>56</td></tr><tr><td>11:15:53</td><td>poison-message</td><td>diagnosed</td><td>8</td><td>6</td><td>names the cause</td><td>pass</td><td>pass</td><td>0.8</td><td>46</td></tr><tr><td>11:16:40</td><td>missing-deploys</td><td>diagnosed</td><td>10</td><td>8</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.75</td><td>65</td></tr></tbody></table>
 <p><b>The cause.</b> Klaxon's rule (rubric version 4, copied unchanged and checked against Klaxon's own) says all 9 runs name the
-recorded cause. In Klaxon, this rule agreed with Aravind's own verdicts on 13 of 13 saved runs. It reads words, not meaning.</p>
+recorded cause. It reads words, not meaning. In Klaxon, it agreed with Aravind's own blind verdicts on 27 of the 40 runs he
+labeled: 13 of 13 in its calibration, but less on the hardest cases, and Klaxon's records call the graders a weak guide on
+missing deploys. So the evidence checks below matter more than the rule's verdict.</p>
 <p><b>Results checked against the evidence.</b> Version 1 of the checks was committed before the runs. It passed 3 of 9. Four
 runs stated a total they had worked out themselves: "$134.47", the four payments counted twice. The sum is right (16.97 +
 19.29 + 66.38 + 31.83), but no result states it, and version 1 only finds facts that a result states. One named a setting only

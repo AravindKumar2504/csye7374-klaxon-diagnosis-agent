@@ -23,8 +23,9 @@ names. The rule also says whether the proposed fix is of a kind, and on a target
 
 A rule reads words, not meaning: "a deploy is unlikely" names a deploy, and the right cause put in other words can be
 missed. So every check shows the rule's verdict next to the hypothesis and the recorded cause, for a person to check,
-and always labels it as a rule's. In Klaxon, this rule and Aravind's own verdicts agreed on the cause for 13 of 13
-saved runs (Klaxon's docs/STATUS.md, week 5, item 2).
+and always labels it as a rule's. In Klaxon, this rule agreed with Aravind's own blind verdicts on the cause on 27 of the
+40 runs he labeled: 13 of 13 in its calibration, 11 of 17 in week 5, and 3 of 10 in week 6, where Klaxon's records call
+the graders a weak guide on the false alarm and on missing deploys (Klaxon's docs/STATUS.md at fef450b).
 """
 
 from __future__ import annotations
