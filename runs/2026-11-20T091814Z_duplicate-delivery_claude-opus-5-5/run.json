@@ -1,0 +1,109 @@
+{
+  "case": "duplicate-delivery",
+  "model": "claude-opus-5-5",
+  "header": {
+    "what": "One run of Klaxon's diagnosis agent on the case duplicate-delivery: claude-opus-5-5 through Claude Code on Aravind's seat (live). Its tools read incident data captured from Klaxon's live stack.",
+    "case": "duplicate-delivery",
+    "model": "claude-opus-5-5",
+    "budgets": {
+      "steps": 10,
+      "tool_calls": 8,
+      "seconds": 600.0,
+      "retries": 2,
+      "model_retries": 1
+    },
+    "rerun_command": "python -m diagnosis_agent run duplicate-delivery --model claude-opus-5-5",
+    "incident": "duplicate-delivery",
+    "incident_data_sha256": {
+      "incident.json": "f2bbdd018fc6303ab5730ad6f631473223f14a16e3349524edc2a8f9ae63add1",
+      "money_check.json": "675d68ef1f5622a993b3bb8370b8e259e3d95feae6b92edf1bf79b51fe836b9b",
+      "recent_deploys.json": "a27f1858749545db11ddf7504342c333ffde151a15329e18049ff73731004158",
+      "logs.jsonl": "1e5aa5699226980b3adc481324d0273fc2f807c83784a5d1ee170c69bb9cc9c0"
+    },
+    "klaxon_commit_copied_from": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "ran_at_utc": "2026-11-20T09:18:14+00:00",
+    "ran_at_local": "2026-11-20T04:18:14-05:00",
+    "python": "3.12.14",
+    "diagnosis_agent_version": "0.1.0",
+    "code_sha256": "f102592a30be59a33b33b7f7d258ce536001c6f19b350b7f2a303e95e4d28b8e",
+    "git_commit": "1e1ad313015711bf55ecd294f2e5e37d30c72ad2",
+    "git_clean_code": true
+  },
+  "result": {
+    "reason": "diagnosed",
+    "detail": "confidence 0.85",
+    "steps": 8,
+    "tool_calls": 6,
+    "seconds": 45.676,
+    "diagnosis": {
+      "hypothesis": "ledger-consumer was recreated at 07:41:36Z with LEDGER_HANDLER=naive, 30 s before the alert. That handler books every Kafka message and never checks whether an event_id was already posted. The provider resends webhooks until they are acknowledged, and webhook-receiver queues each delivery as a new message, so one event can sit at several offsets (evt_000308 at 2@95-97). Each copy became its own ledger transaction.\n\nThe extras add up to the alert exactly. Four payments were booked twice: $134.47. One $8.75 refund was booked three times: -$17.50. Net: +$116.97.\n\nThe ledger stays balanced because each duplicate is a full double-entry transaction. Payments and refunds still match the provider, so the fault is in ledger posting only.\n\nStill open: which handler ran before 07:41:36, and why the provider redelivered (normal retries or slow acknowledgements).",
+      "evidence": [
+        {
+          "call_id": "c1",
+          "tool": "money_check",
+          "arguments": {},
+          "shows": "The symptom is real. evt_000288, 298, 352 and 373 were each posted twice, and evt_000308 three times. The ledger is +$116.97 against the provider. The ledger is balanced, and payments and refunds match the provider."
+        },
+        {
+          "call_id": "c2",
+          "tool": "recent_deploys",
+          "arguments": {},
+          "shows": "ledger-consumer was redeployed at 07:41:36Z with LEDGER_HANDLER=naive. Every other service was deployed at 07:39."
+        },
+        {
+          "call_id": "c3",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "evt_000308",
+            "minutes": 15,
+            "limit": 20
+          },
+          "shows": "ledger-consumer posted evt_000308 three times at 07:41:50, from offsets 2@95, 2@96 and 2@97, each with a different trace_id."
+        },
+        {
+          "call_id": "c4",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "webhook-receiver",
+            "contains": "evt_000308",
+            "minutes": 15,
+            "limit": 20
+          },
+          "shows": "webhook-receiver queued evt_000308 three times between 07:41:41 and 07:41:43, at offsets 95-97: repeated provider deliveries of the same event."
+        },
+        {
+          "call_id": "c5",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "duplicate",
+            "minutes": 15,
+            "limit": 20
+          },
+          "shows": "ledger-consumer logged no 'duplicate' line in the last 15 minutes, so it never skipped a redelivered event."
+        },
+        {
+          "call_id": "c6",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "evt_000288",
+            "minutes": 15,
+            "limit": 20
+          },
+          "shows": "evt_000288 was posted at 07:41:38 (0@89) and again at 07:41:49 (0@93). Both postings came after the naive-handler deploy."
+        }
+      ],
+      "confidence": 0.85,
+      "proposed_fix": {
+        "kind": "rollback",
+        "target": "ledger-consumer",
+        "summary": "1. Roll ledger-consumer back to its previous image and settings, with a LEDGER_HANDLER that dedupes on event_id.\n2. As a separate data repair, add compensating reversals for the extra transactions, keeping the first posting of each event: reverse 292 (evt_000288), 319 (evt_000298), 322 and 323 (evt_000308), 359 (evt_000352) and 381 (evt_000373).\n3. Rerun the money check.",
+        "applied": false
+      },
+      "blast_radius": "The rollback restarts ledger-consumer, so ledger posting pauses briefly and resumes from committed offsets. payment-confirmer and payments-api are untouched.\n\nThe data repair changes ledger balances. Reversing the wrong transaction would create a new mismatch. Duplicates posted after this money check may also need the same repair.",
+      "rollback_plan": "If the rolled-back handler fails to consume, redeploy ledger-consumer with the current image and settings. The reversals are compensating transactions, not deletes, so they can be undone by voiding them."
+    }
+  }
+}

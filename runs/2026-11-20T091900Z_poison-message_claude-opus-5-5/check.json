@@ -1,0 +1,161 @@
+{
+  "label": "Checked by code (diagnosis_agent.check) against the tool results this run received: not by a model, and not by a person. The cause check is a rule: Klaxon's rubric version 4.",
+  "run": "2026-11-20T091900Z_poison-message_claude-opus-5-5",
+  "case": "poison-message",
+  "kind": "incident",
+  "model": "claude-opus-5-5",
+  "source": "claude-code",
+  "stop_reason": "diagnosed",
+  "steps": 8,
+  "tool_calls": 6,
+  "path": [
+    "money_check",
+    "search_logs",
+    "recent_deploys",
+    "search_logs",
+    "search_logs",
+    "search_logs"
+  ],
+  "seconds": 46.708,
+  "confidence": 0.8,
+  "cause": {
+    "by": "a rule (Klaxon's rubric version 4, copied from Klaxon at fef450b, written there before its live runs): keyword patterns per element of the right answer. Not a person and not a model: it reads words, not meaning.",
+    "rubric": "poison-message",
+    "fingerprint": "a9a5183786aeabe4f24dab64458ae37837aa80072448cb901b12d8df4e78b0bd",
+    "verdict": "names the cause",
+    "elements": [
+      {
+        "element": "where: the ledger consumer",
+        "required": true,
+        "named": true,
+        "cancelled": false
+      },
+      {
+        "element": "what: one message it cannot read",
+        "required": true,
+        "named": true,
+        "cancelled": false
+      },
+      {
+        "element": "how: it retries that message forever, so nothing behind it is booked",
+        "required": true,
+        "named": true,
+        "cancelled": false
+      },
+      {
+        "element": "the deploy that brought it",
+        "required": false,
+        "named": true,
+        "cancelled": false
+      }
+    ],
+    "wrong_causes": [],
+    "wrong_causes_offered": [],
+    "proposed_fix": {
+      "kind": "config_change",
+      "target": "ledger-consumer"
+    },
+    "fix_fits_the_remedy": true,
+    "fitting_fixes": {
+      "kinds": [
+        "rollback",
+        "config_change"
+      ],
+      "target_matches": "ledger"
+    }
+  },
+  "checks": [
+    {
+      "check": "stopped_with_diagnosis",
+      "passed": true,
+      "detail": "the run stopped on diagnosed"
+    },
+    {
+      "check": "names_the_cause",
+      "passed": true,
+      "detail": "the rule says: names the cause"
+    },
+    {
+      "check": "citations_ran",
+      "passed": true,
+      "detail": "every cited call ran",
+      "cited": [
+        "c1",
+        "c2",
+        "c3",
+        "c4",
+        "c5",
+        "c6"
+      ]
+    },
+    {
+      "check": "cited_results_hold_the_facts",
+      "passed": true,
+      "detail": "every fact in the evidence is in the result it cites",
+      "evidence": [
+        {
+          "call_id": "c1",
+          "facts": [],
+          "not_in_that_result": []
+        },
+        {
+          "call_id": "c2",
+          "facts": [
+            "provider-events/0@229"
+          ],
+          "not_in_that_result": []
+        },
+        {
+          "call_id": "c3",
+          "facts": [
+            "LEDGER_HANDLER=idempotent",
+            "BAD_EVENTS=retry",
+            "BAD_EVENTS=dead_letter"
+          ],
+          "not_in_that_result": []
+        },
+        {
+          "call_id": "c4",
+          "facts": [],
+          "not_in_that_result": []
+        },
+        {
+          "call_id": "c5",
+          "facts": [
+            "evt_000681",
+            "pay_000619"
+          ],
+          "not_in_that_result": []
+        },
+        {
+          "call_id": "c6",
+          "facts": [
+            "pay_000619",
+            "evt_000680",
+            "evt_000681"
+          ],
+          "not_in_that_result": []
+        }
+      ]
+    },
+    {
+      "check": "hypothesis_facts_in_results",
+      "passed": true,
+      "detail": "6 fact(s) in the hypothesis and fix, all in a result or the alert",
+      "facts": [
+        "evt_000681",
+        "pay_000619",
+        "evt_000680",
+        "BAD_EVENTS=retry",
+        "BAD_EVENTS=dead_letter",
+        "provider-events/0@229"
+      ]
+    },
+    {
+      "check": "read_only",
+      "passed": true,
+      "detail": "only read-only tools ran, and the fix was proposed, not applied"
+    }
+  ],
+  "passed": true
+}

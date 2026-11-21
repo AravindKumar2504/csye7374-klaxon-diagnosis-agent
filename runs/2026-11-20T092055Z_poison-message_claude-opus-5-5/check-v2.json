@@ -1,0 +1,23 @@
+{
+  "label": "Checked by code (diagnosis_agent.check) against the tool results this run received: not by a model, and not by a person. The cause check is a rule: Klaxon's rubric version 4. Version 2 of the checks, written on 2026-11-20 after reading version 1's results on the live runs: a dollar amount may also be a sum of one money check's findings, and the proposed fix is read as a proposal, not a claim.",
+  "version": 2,
+  "run": "2026-11-20T092055Z_poison-message_claude-opus-5-5",
+  "case": "poison-message",
+  "kind": "incident",
+  "model": "claude-opus-5-5",
+  "source": "claude-code",
+  "stop_reason": "model_error",
+  "steps": 2,
+  "tool_calls": 0,
+  "path": [],
+  "seconds": 1.057,
+  "passed": false,
+  "checks": [
+    {
+      "check": "stopped_with_diagnosis",
+      "passed": false,
+      "detail": "the run stopped on model_error"
+    }
+  ],
+  "confidence": null
+}

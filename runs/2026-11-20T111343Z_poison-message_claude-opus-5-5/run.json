@@ -1,0 +1,87 @@
+{
+  "case": "poison-message",
+  "model": "claude-opus-5-5",
+  "header": {
+    "what": "One run of Klaxon's diagnosis agent on the case poison-message: claude-opus-5-5 through Claude Code on Aravind's seat (live). Its tools read incident data captured from Klaxon's live stack.",
+    "case": "poison-message",
+    "model": "claude-opus-5-5",
+    "budgets": {
+      "steps": 10,
+      "tool_calls": 8,
+      "seconds": 600.0,
+      "retries": 2,
+      "model_retries": 1
+    },
+    "rerun_command": "python -m diagnosis_agent run poison-message --model claude-opus-5-5",
+    "incident": "poison-message",
+    "incident_data_sha256": {
+      "incident.json": "a35cb00f2aaea97d44e3c0ce01cd60e0c9fb5837913dcd8bcd6aa429429aae75",
+      "money_check.json": "60d6fd4a97b54530ff447f0ae5946aee02a92eba66dfad11a3000052edbf5d60",
+      "recent_deploys.json": "f722c525a8e5d1e22400324d1896b1a664f6d9470a6d124c4dd872f762d89ad1",
+      "logs.jsonl": "f3586b42a1b9ea0ef47a8fa989d3cc75f84ed3267104dbbd6213627d7aaea0c3"
+    },
+    "klaxon_commit_copied_from": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "ran_at_utc": "2026-11-20T11:13:43+00:00",
+    "ran_at_local": "2026-11-20T06:13:43-05:00",
+    "python": "3.12.14",
+    "diagnosis_agent_version": "0.1.0",
+    "code_sha256": "f102592a30be59a33b33b7f7d258ce536001c6f19b350b7f2a303e95e4d28b8e",
+    "git_commit": "1e1ad313015711bf55ecd294f2e5e37d30c72ad2",
+    "git_clean_code": true
+  },
+  "result": {
+    "reason": "diagnosed",
+    "detail": "confidence 0.8",
+    "steps": 5,
+    "tool_calls": 4,
+    "seconds": 25.258,
+    "diagnosis": {
+      "hypothesis": "One malformed provider event sits at provider-events partition 0, offset 229. Its amount is not positive integer cents. ledger-consumer was recreated at 07:56:08Z with BAD_EVENTS=retry. With that setting it treats the message as retryable: it retries the same message forever (attempt 13 and counting, every 15 s) and never commits past it. Every later message on partition 0 queues up behind it, so the ledger's backlog grows (176 at the alert, 222 at c1). The money check cannot settle up to its cutoff, which fires BooksBehindProvider. payment-confirmer runs with BAD_EVENTS=dead_letter. It dead-lettered the same message at 07:56:13Z and is caught up (lag 0). This points to the ledger's bad-event setting as the cause of the stall, with the bad event as the trigger. Still open: which event is at 0\uff20229, why its amount is invalid (it comes from the provider side), and what BAD_EVENTS the ledger had before the 07:56:08 redeploy.",
+      "evidence": [
+        {
+          "call_id": "c1",
+          "tool": "money_check",
+          "arguments": {},
+          "shows": "The money check could not run. The ledger has 222 unhandled messages up to the cutoff, up from 176 at the alert. payment-confirmer has 0."
+        },
+        {
+          "call_id": "c2",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "level": "ERROR",
+            "minutes": 30,
+            "limit": 20
+          },
+          "shows": "ledger-consumer retries provider-events/0\uff20229 over and over (attempts 3 to 13, backoff capped at 15 s) with the error 'amount must be positive integer cents'."
+        },
+        {
+          "call_id": "c3",
+          "tool": "recent_deploys",
+          "arguments": {},
+          "shows": "ledger-consumer was recreated at 07:56:08Z, 2 minutes before the c3 call, with BAD_EVENTS=retry. payment-confirmer has BAD_EVENTS=dead_letter. No other service changed since 07:52:06Z, and CHARGE_AMOUNT_UNIT=cents on payments-api."
+        },
+        {
+          "call_id": "c4",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "payment-confirmer",
+            "contains": "229",
+            "minutes": 30,
+            "limit": 10
+          },
+          "shows": "payment-confirmer dead-lettered provider-events/0\uff20229 at 07:56:13Z for the same invalid-amount reason, then went on processing later messages."
+        }
+      ],
+      "confidence": 0.8,
+      "proposed_fix": {
+        "kind": "config_change",
+        "target": "ledger-consumer",
+        "summary": "Set BAD_EVENTS=dead_letter on ledger-consumer, matching payment-confirmer, and redeploy it. It will then dead-letter 0\uff20229 and work through the backlog. After that, inspect the dead-lettered event (its event id, its amount, and the provider's record of it) and book it by hand or replay it once it is understood. That way the ledger still matches the provider.",
+        "applied": false
+      },
+      "blast_radius": "This affects ledger-consumer only. Once 0\uff20229 is dead-lettered, it is missing from the ledger until someone handles it, so the money check will still flag that one event. Any other bad event would also be dead-lettered instead of blocking the partition. Each one needs review.",
+      "rollback_plan": "Redeploy ledger-consumer with BAD_EVENTS=retry (the current image and settings, from c3). Dead-lettered messages are kept and can be replayed."
+    }
+  }
+}

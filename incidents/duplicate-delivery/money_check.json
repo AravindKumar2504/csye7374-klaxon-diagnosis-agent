@@ -1,0 +1,146 @@
+{
+  "outcome": "failed",
+  "cutoff": "2026-11-20T07:42:07Z",
+  "waited_to_settle": true,
+  "settled_after_seconds": 0.17,
+  "invariants": [
+    {
+      "name": "posted_exactly_once",
+      "passed": false,
+      "summary": "evt_000288 (payment.succeeded, pay_000262, $16.97) posted 2 times, expected 1; evt_000298 (payment.succeeded, pay_000271, $19.29) posted 2 times, expected 1; evt_000308 (refund.succeeded, pay_000211, $8.75) posted 3 times, expected 1; evt_000352 (payment.succeeded, pay_000320, $66.38) posted 2 times, expected 1; evt_000373 (payment.succeeded, pay_000340, $31.83) posted 2 times, expected 1",
+      "evidence": [
+        {
+          "event_id": "evt_000288",
+          "type": "payment.succeeded",
+          "payment_id": "pay_000262",
+          "amount_cents": 1697,
+          "times_posted": 2,
+          "expected": 1,
+          "problem": "counted twice",
+          "transaction_ids": [
+            288,
+            292
+          ]
+        },
+        {
+          "event_id": "evt_000298",
+          "type": "payment.succeeded",
+          "payment_id": "pay_000271",
+          "amount_cents": 1929,
+          "times_posted": 2,
+          "expected": 1,
+          "problem": "counted twice",
+          "transaction_ids": [
+            316,
+            319
+          ]
+        },
+        {
+          "event_id": "evt_000308",
+          "type": "refund.succeeded",
+          "payment_id": "pay_000211",
+          "amount_cents": 875,
+          "times_posted": 3,
+          "expected": 1,
+          "problem": "counted 3 times",
+          "transaction_ids": [
+            321,
+            322,
+            323
+          ]
+        },
+        {
+          "event_id": "evt_000352",
+          "type": "payment.succeeded",
+          "payment_id": "pay_000320",
+          "amount_cents": 6638,
+          "times_posted": 2,
+          "expected": 1,
+          "problem": "counted twice",
+          "transaction_ids": [
+            356,
+            359
+          ]
+        },
+        {
+          "event_id": "evt_000373",
+          "type": "payment.succeeded",
+          "payment_id": "pay_000340",
+          "amount_cents": 3183,
+          "times_posted": 2,
+          "expected": 1,
+          "problem": "counted twice",
+          "transaction_ids": [
+            378,
+            381
+          ]
+        }
+      ],
+      "evidence_total": 5
+    },
+    {
+      "name": "ledger_balanced",
+      "passed": true,
+      "summary": "debits $19,586.98 = credits $19,586.98",
+      "evidence": [],
+      "evidence_total": 0
+    },
+    {
+      "name": "matches_provider",
+      "passed": false,
+      "summary": "ledger says $17,230.74, provider says $17,113.77: off by +$116.97",
+      "evidence": [
+        {
+          "scope": "provider_clearing, all payments",
+          "ledger_cents": 1723074,
+          "provider_cents": 1711377,
+          "difference_cents": 11697
+        },
+        {
+          "scope": "pay_000211",
+          "ledger_cents": -874,
+          "provider_cents": 876,
+          "difference_cents": -1750
+        },
+        {
+          "scope": "pay_000262",
+          "ledger_cents": 3394,
+          "provider_cents": 1697,
+          "difference_cents": 1697
+        },
+        {
+          "scope": "pay_000271",
+          "ledger_cents": 3858,
+          "provider_cents": 1929,
+          "difference_cents": 1929
+        },
+        {
+          "scope": "pay_000320",
+          "ledger_cents": 13276,
+          "provider_cents": 6638,
+          "difference_cents": 6638
+        }
+      ],
+      "evidence_total": 6
+    },
+    {
+      "name": "payments_match_provider",
+      "passed": true,
+      "summary": "all 351 of our payments agree with the provider (351 charged once, 0 never charged)",
+      "evidence": [],
+      "evidence_total": 0
+    },
+    {
+      "name": "refunds_match_provider",
+      "passed": true,
+      "summary": "all 34 of our refunds agree with the provider (34 refunded once, 0 never refunded), and no charge was refunded more than its amount",
+      "evidence": [],
+      "evidence_total": 0
+    }
+  ],
+  "left_for_next_check": {
+    "provider_events": 0,
+    "provider_charges": 0,
+    "provider_refunds": 0
+  }
+}

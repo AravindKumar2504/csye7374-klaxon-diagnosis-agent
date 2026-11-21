@@ -1,0 +1,106 @@
+{
+  "case": "poison-message",
+  "model": "claude-opus-5-5",
+  "header": {
+    "what": "One run of Klaxon's diagnosis agent on the case poison-message: claude-opus-5-5 through Claude Code on Aravind's seat (live). Its tools read incident data captured from Klaxon's live stack.",
+    "case": "poison-message",
+    "model": "claude-opus-5-5",
+    "budgets": {
+      "steps": 10,
+      "tool_calls": 8,
+      "seconds": 600.0,
+      "retries": 2,
+      "model_retries": 1
+    },
+    "rerun_command": "python -m diagnosis_agent run poison-message --model claude-opus-5-5",
+    "incident": "poison-message",
+    "incident_data_sha256": {
+      "incident.json": "a35cb00f2aaea97d44e3c0ce01cd60e0c9fb5837913dcd8bcd6aa429429aae75",
+      "money_check.json": "60d6fd4a97b54530ff447f0ae5946aee02a92eba66dfad11a3000052edbf5d60",
+      "recent_deploys.json": "f722c525a8e5d1e22400324d1896b1a664f6d9470a6d124c4dd872f762d89ad1",
+      "logs.jsonl": "f3586b42a1b9ea0ef47a8fa989d3cc75f84ed3267104dbbd6213627d7aaea0c3"
+    },
+    "klaxon_commit_copied_from": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "ran_at_utc": "2026-11-20T09:19:00+00:00",
+    "ran_at_local": "2026-11-20T04:19:00-05:00",
+    "python": "3.12.14",
+    "diagnosis_agent_version": "0.1.0",
+    "code_sha256": "f102592a30be59a33b33b7f7d258ce536001c6f19b350b7f2a303e95e4d28b8e",
+    "git_commit": "1e1ad313015711bf55ecd294f2e5e37d30c72ad2",
+    "git_clean_code": true
+  },
+  "result": {
+    "reason": "diagnosed",
+    "detail": "confidence 0.8",
+    "steps": 8,
+    "tool_calls": 6,
+    "seconds": 46.708,
+    "diagnosis": {
+      "hypothesis": "ledger-consumer is blocked by a poison message, provider-events/0@229 (evt_000681, pay_000619), whose amount is invalid ('amount must be positive integer cents'). It was recreated at 07:56:08 with BAD_EVENTS=retry, so it retries that message indefinitely, every 15 s and at attempt 13+, instead of setting it aside. Every later message queues behind it, so ledger lag grows (176, then 222), the money check cannot settle, and BooksBehindProvider fires. payment-confirmer has BAD_EVENTS=dead_letter. It dead-lettered the same message and moved on, so its lag is 0. evt_000681 was a second webhook for pay_000619. The first, evt_000680 at offset 228 for 1260 cents, was booked and confirmed. Open: evt_000681's type and real amount, whether the provider truly sent a bad amount, and BAD_EVENTS's value before the 07:56:08 deploy.",
+      "evidence": [
+        {
+          "call_id": "c1",
+          "tool": "money_check",
+          "arguments": {},
+          "shows": "The money check could not run: 222 ledger messages are not yet handled and payment-confirmer has 0. This confirms the alert and shows the backlog growing."
+        },
+        {
+          "call_id": "c2",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "level": "ERROR",
+            "minutes": 30,
+            "limit": 20
+          },
+          "shows": "ledger-consumer keeps failing on provider-events/0@229 with 'amount must be positive integer cents' and retries the same message. Backoff has reached 15 s and attempts have reached 13."
+        },
+        {
+          "call_id": "c3",
+          "tool": "recent_deploys",
+          "arguments": {},
+          "shows": "ledger-consumer was redeployed at 07:56:08 with LEDGER_HANDLER=idempotent and BAD_EVENTS=retry. payment-confirmer has BAD_EVENTS=dead_letter. No other service changed since 07:52."
+        },
+        {
+          "call_id": "c4",
+          "tool": "search_logs",
+          "arguments": {
+            "contains": "provider-events/0@229",
+            "minutes": 30,
+            "limit": 30
+          },
+          "shows": "At 07:56:13, payment-confirmer dead-lettered the same message for the same reason and moved on. ledger-consumer's endless retries started at that same moment."
+        },
+        {
+          "call_id": "c5",
+          "tool": "search_logs",
+          "arguments": {
+            "contains": "71ab345494b16303d6204e69b3a39ad3",
+            "minutes": 30,
+            "limit": 30
+          },
+          "shows": "Offset 229 is evt_000681, keyed pay_000619. webhook-receiver accepted it at 07:56:13 with HTTP 200."
+        },
+        {
+          "call_id": "c6",
+          "tool": "search_logs",
+          "arguments": {
+            "contains": "pay_000619",
+            "minutes": 30,
+            "limit": 30
+          },
+          "shows": "pay_000619 already had a valid payment.succeeded event, evt_000680, for 1260 cents, which was posted and confirmed. evt_000681 is a later, malformed event for the same payment."
+        }
+      ],
+      "confidence": 0.8,
+      "proposed_fix": {
+        "kind": "config_change",
+        "target": "ledger-consumer",
+        "summary": "Set BAD_EVENTS=dead_letter on ledger-consumer, matching payment-confirmer, or roll back to its settings from before 07:56:08. Restart it so it dead-letters offset 229 and drains the backlog. Then inspect evt_000681 in the dead-letter queue, check its true type and amount against the provider's records, and repair or replay it once validated. Rerun the money check to confirm it settles.",
+        "applied": false
+      },
+      "blast_radius": "This affects only how ledger-consumer handles events it cannot book: malformed events go to the dead-letter queue instead of blocking the stream. Until someone reviews it, evt_000681 stays out of the ledger, so the ledger may differ from the provider for pay_000619. Other events that fail validation would also be dead-lettered quietly, so the dead-letter queue needs monitoring and an alert.",
+      "rollback_plan": "Redeploy ledger-consumer with BAD_EVENTS=retry, its current setting. The idempotent ledger handler prevents double booking. Dead-lettered messages can be replayed from the dead-letter queue."
+    }
+  }
+}
