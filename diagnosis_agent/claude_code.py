@@ -32,7 +32,8 @@ Klaxon runs every tool itself, in its own process, so here Claude Code is set up
 
 Every reply is recorded (diagnosis_agent.model.Recording) before the loop sees it, and so is every failure. A
 reply that cannot be recorded is not returned. The recording leaves out Claude Code's rate-limit events, which
-describe the seat's usage, not the call.
+describe the seat's usage, not the call. Every other event is kept as received: each result event still holds the
+login's expiry time, and a call the usage limit refused holds the limit's details in its error.
 
 While KLAXON_NO_LIVE_MODEL is set (CI sets it, and so do the offline tests), every live call is refused before
 anything starts: Klaxon does not look for Claude Code, and no live adapter can be made.

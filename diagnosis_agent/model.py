@@ -37,7 +37,8 @@ LABEL = (
     "Recorded responses: each one received from Claude through Claude Code in headless mode (claude -p) on"
     " Aravind's seat, and saved before Klaxon used it. Not a simulation. The text is exactly as received. In the"
     " raw output, this Mac's home folder is written as ~, and Claude Code's rate-limit events (the seat's usage"
-    " state) are left out."
+    " state) are left out. Every other event is kept as received, so each result event still holds the login's"
+    " expiry time, and a call the seat's usage limit refused holds the limit's details in its error."
 )
 
 
