@@ -45,7 +45,7 @@ Offline, with no model:
 ```bash
 .venv/bin/python -m diagnosis_agent cases
 .venv/bin/python -m diagnosis_agent prompt duplicate-delivery
-.venv/bin/python -m diagnosis_agent tool duplicate-delivery search_logs '{"service": "ledger-consumer", "level": "ERROR"}'
+.venv/bin/python -m diagnosis_agent tool poison-message search_logs '{"service": "ledger-consumer", "level": "ERROR", "limit": 2}'
 .venv/bin/python -m diagnosis_agent run missing-deploys --model scripted
 .venv/bin/python -m diagnosis_agent report
 .venv/bin/pytest -q
@@ -53,9 +53,12 @@ Offline, with no model:
 
 `--model scripted` is a mock: its replies are worked out by a few lines of Python, always in the same order. It shows the loop, tools, trace and checks working offline. It says nothing about how a model chooses. Its runs go to `runs-scripted/`, which git ignores.
 
-Replay a recorded live run, offline, and check that it reproduces:
+`pytest -q` runs the offline tests: no model, no Docker. They include an exact replay of every live run, every README command run as its own process (`tests/test_e2e.py`), and one test for each of the loop's safety guarantees (`tests/test_guarantees.py`). A code review on 2026-11-21 UTC took nine of those guarantees out of the code one at a time, and the tests then still passed; with these tests, each one taken out fails a test.
+
+Show a recorded live run step by step, offline (each reason the model gave, the loop's decision, each tool call and what came back, the diagnosis and both versions of the checks), then replay it and check it:
 
 ```bash
+.venv/bin/python -m diagnosis_agent show runs/2026-11-20T091900Z_poison-message_claude-opus-5-5
 .venv/bin/python -m diagnosis_agent replay runs/2026-11-20T091900Z_poison-message_claude-opus-5-5
 .venv/bin/python -m diagnosis_agent check runs/2026-11-20T091900Z_poison-message_claude-opus-5-5
 ```
@@ -68,7 +71,7 @@ Live, on a Claude Code login (the live runs below made 5 to 10 model calls each)
 
 ## Results
 
-Nine live runs on 2026-11-20 UTC: Claude Opus 5.5 (`claude-opus-5-5`) through Claude Code 2.1.326, three per case, on the captured incidents. Every reply and tool result is in `runs/`, and every run replays offline, exactly (`tests/test_live_runs.py`). In all, 73 model calls, $3.58 at API prices by Claude Code's own estimate (the runs used Aravind's seat, which is not billed per call).
+Nine live runs on 2026-11-20 UTC: Claude Opus 5.5 (`claude-opus-5-5`) through Claude Code 2.1.326, three per case, on the captured incidents. Every reply and tool result is in `runs/`, and every run replays offline, exactly (`tests/test_live_runs.py`). In all, 71 model calls, $3.58 at API prices by Claude Code's own estimate (the runs used Aravind's seat, which is not billed per call).
 
 | Case | Runs | Names the cause (Klaxon's rule) | Every check passed, version 1 | Every check passed, version 2 |
 |---|---|---|---|---|
@@ -78,9 +81,11 @@ Nine live runs on 2026-11-20 UTC: Claude Opus 5.5 (`claude-opus-5-5`) through Cl
 
 - **The agent chose its own path.** Every run started with the money check, to confirm the alert. What came back decided the next step. When the money was wrong (incident 1), it read the deploy list next. When the books could not settle (incident 2), it read the ledger consumer's error logs first. It then searched the logs for the event ids, Kafka offsets and trace ids that earlier results named. Runs took 4 to 8 tool calls and 25 to 65 seconds.
 - **The missing-evidence case.** When `recent_deploys` failed, each run said the deploy list could not be read, and none named the deploy's setting from that list. One of them (round 2) found the ledger consumer restarting in `mode=naive` in its own logs instead. One run asked for the deploy list a second time, and it failed again.
-- **Version 1 of the checks** was committed before the runs (each run's `check.json`). It passed 3 of 9. Four runs stated a total they worked out themselves ($134.47, the four payments counted twice). It is right, but no result states it. One named a setting only in its proposed fix. One cited `c8` for `evt_000288`, which is in the result of `c1`, not `c8`.
-- **Version 2** was written after reading those results, and is labeled so (each run's `check-v2.json`). It also accepts a sum of the money check's own findings, and reads the proposed fix as a proposal, not as a claim. It passes 8 of 9. The citation slip still fails.
+- **What the checks read.** Each fact a diagnosis states: an event, payment or refund id, a dollar amount, a time, a setting (`NAME=value`) or a Kafka offset. Each fact in a piece of evidence must be in the result of the call it cites; each fact in the hypothesis must be in some result the run received, or in the alert. They skip counts ("17 events") and facts written out in words ("offsets 95, 96 and 97").
+- **Version 1 of the checks** was committed before the runs (each run's `check.json`). It passed 3 of 9. Four runs stated a total they worked out themselves ($134.47, the four payments counted twice). It is right, but no result states it. One named a setting only in its proposed fix. One cited `c8` for `evt_000288`, which is in the result of `c1`, not `c8`. It read a time only with its date, and no diagnosis gave one, so it checked no time at all.
+- **Version 2** was written after the runs, and is labeled so (each run's `check-v2.json`). After reading version 1's results, it also accepts any total of the money check's own findings, and reads the proposed fix as a proposal, not as a claim. On 2026-11-21 UTC, after a code review, it also reads times with no date and offsets in short forms (`2@95`, and the full-width `＠` the live adapter writes for `@`), counts an amount in cents only beside a key that ends in `_cents` (version 1 "found" `$20.26` in every result, from the year 2026), matches settings in any letter case, and reads the whole alert. Those fixes changed no verdict. It passes 8 of 9. The citation slip still fails.
 - One more run, the second of incident 2, stopped at its first call: the seat's 5-hour limit. It is kept as recorded and counted as not run, and the case was run again after the reset.
+- **What the recordings keep.** Every event Claude Code sent, as received, except its rate-limit events, and with this Mac's home folder written as `~`. So each result event still holds the login's expiry time, and the stopped run's error holds the usage limit's details. On 2026-11-21 UTC the label at the top of each recording was corrected to say so; it had said the seat's usage state was left out. The received events did not change.
 
 `.venv/bin/python -m diagnosis_agent report --markdown` prints every run's row.
 
@@ -96,19 +101,19 @@ Most of the agent is copied from Klaxon at commit `fef450b`. Each copied file sa
 |---|---|---|
 | `diagnosis_agent/loop.py` | `src/klaxon/agent/loop.py` | cut to the plain loop: three tools, no write actions, no LangGraph, no MCP process |
 | `diagnosis_agent/contract.py` | `src/klaxon/agent/contract.py` | no optional write action in the diagnosis |
-| `diagnosis_agent/model.py` | `src/klaxon/agent/model.py` | two docstring lines |
-| `diagnosis_agent/claude_code.py` | `src/klaxon/agent/claude_code.py` | provenance names this repo |
+| `diagnosis_agent/model.py` | `src/klaxon/agent/model.py` | two docstring lines; the recordings' label says what they keep |
+| `diagnosis_agent/claude_code.py` | `src/klaxon/agent/claude_code.py` | provenance names this repo; a docstring says what recordings keep |
 | `diagnosis_agent/trace.py` | `src/klaxon/agent/trace.py` | imports |
 | `diagnosis_agent/tool_client.py` | `src/klaxon/agent/mcp_client.py` | the tool interface and record/replay only, no MCP transport |
 | `diagnosis_agent/text.py` | `src/klaxon/agent/tools.py` | only its cleaning and argument checks |
 | `diagnosis_agent/grading.py` | `src/klaxon/grading.py` | rubric version 4 for these cases, patterns unchanged (`scripts/verify_copied_rubric.py` checks them against Klaxon's) |
 
-New here: `tools.py` (the three tools on the captured data), `cases.py`, `check.py`, `scripted.py`, `cli.py`, the tests, and the two scripts.
+New here: `tools.py` (the three tools on the captured data), `cases.py`, `check.py`, `scripted.py`, `cli.py`, the tests, and the scripts in `scripts/`.
 
 ## Documents
 
 - `docs/Klaxon_Diagnosis_Agent_Aravind_Sundaravadivelu.pdf`: the project document, built from the incidents and the recorded runs by `scripts/build_report.py` (source: `docs/report.html`).
-- `docs/learned.md` and `docs/contributions.md`: Aravind's own words, as they appear in the class deck and the PDF.
+- `docs/learned.md` and `docs/contributions.md`: Aravind's own words. What he learned is in the class deck; his contributions are in the PDF.
 
 ## AI use
 

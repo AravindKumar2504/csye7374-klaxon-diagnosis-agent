@@ -123,12 +123,13 @@ def checks_list(result: dict) -> str:
 
 
 def results_table() -> tuple[str, dict]:
-    rows, totals = [], {"runs": 0, "calls": 0, "cost": 0.0}
+    rows, totals = [], {"runs": 0, "calls": 0, "failed": 0, "cost": 0.0}
     for folder in cli.run_folders([RUNS]):
         one, two = check.check_run(folder, version=1), check.check_run(folder, version=2)
         used = cli.usage(folder)
         totals["runs"] += 1
         totals["calls"] += used["replies"] + used["failed_calls"]
+        totals["failed"] += used["failed_calls"]
         totals["cost"] += used["cost_usd"]
         stop = one["stop_reason"]
         not_run = stop in cli.NOT_RUN
@@ -156,10 +157,9 @@ def alert_rows() -> str:
     out = []
     for case in cases.CASES.values():
         alert = case.alert()
-        extra = " The deploy list answers with a docker timeout (simulated)." if case.withheld else ""
         out.append(
             f"<tr><td><b>{e(case.name)}</b><br>{e(case.title)}</td>"
-            f"<td><b>{e(alert.name)}</b>: {e(alert.summary)}{e(extra)}</td><td>{e(case.right_answer)}</td></tr>"
+            f"<td><b>{e(alert.name)}</b>: {e(alert.summary)}</td><td>{e(case.right_answer)}</td></tr>"
         )
     return "".join(out)
 
@@ -301,6 +301,8 @@ double-entry ledger (PostgreSQL); a payment confirmer; Redis; and a money check 
 own records. All data is synthetic: no real customers or money.</p>
 <table><tr><th>Case</th><th>The alert the agent got (raised by Klaxon's own rules)</th><th>Right answer (written before any run)</th></tr>
 {alert_rows()}</table>
+<p><code>missing-deploys</code> gets the same alert as incident 1. What differs is outside the alert: its deploy list answers
+every call with a docker timeout (simulated).</p>
 <p><b>How the data was made.</b> <code>scripts/capture_incident.py</code> drove Klaxon's own fault runner on its live stack (Klaxon
 at commit <code>fef450b</code>), on 2026-11-20 UTC: synthetic traffic (3 payments a second), a warm-up, the fault injected, then
 Klaxon's alert rules until one fired. At that moment, with the fault still in place, the script called Klaxon's own read-only
@@ -354,8 +356,9 @@ reads the fix as a proposal and passes it:</p>
 
 <h2>7. Testing and results</h2>
 <p>Nine live runs, three per case, plus one run the seat's 5-hour limit stopped at its first call (kept as recorded, counted
-as not run, and run again after the reset). In all {totals["calls"]} model calls, ${totals["cost"]:.2f} at API prices by Claude
-Code's own estimate (the runs used Aravind's university seat, which is not billed per call).</p>
+as not run, and run again after the reset). In all {totals["calls"]} model calls: {totals["calls"] - totals["failed"]} in the nine runs, and
+the stopped run's {totals["failed"]} failed calls. ${totals["cost"]:.2f} at API prices by Claude Code's own estimate (the runs used
+Aravind's university seat, which is not billed per call).</p>
 {results}
 <p><b>The cause.</b> Klaxon's rule (rubric version 4, copied unchanged and checked against Klaxon's own) says all 9 runs name the
 recorded cause. It reads words, not meaning. In Klaxon, it agreed with Aravind's own blind verdicts on 27 of the 40 runs he
@@ -365,19 +368,26 @@ missing deploys. So the evidence checks below matter more than the rule's verdic
 runs stated a total they had worked out themselves: "$134.47", the four payments counted twice. The sum is right (16.97 +
 19.29 + 66.38 + 31.83), but no result states it, and version 1 only finds facts that a result states. One named a setting only
 in its proposed fix. One cited the wrong call: "{e(slip_shows)}" cites <code>{e(slip_item["call_id"])}</code>, whose result does not hold
-<code>{e(", ".join(slip_item["not_in_that_result"]))}</code> (the money check's result does). Version 2 was written after reading those
-results, and is labeled so: it also accepts a sum of the money check's own findings, and reads the proposed fix as a proposal.
-It passes 8 of 9. The citation slip still fails, as it should.</p>
+<code>{e(", ".join(slip_item["not_in_that_result"]))}</code> (the money check's result does). Version 1 also read a time only
+with its date, and no diagnosis gave one, so it checked no time at all. Version 2 was written after the runs, and is labeled
+so. After reading version 1's results, it also accepts any total of the money check's own findings, and reads the proposed fix
+as a proposal. On 2026-11-21 UTC, after a code review, it also reads times with no date and offsets in short forms, counts an
+amount in cents only beside a key that ends in <code>_cents</code> (version 1 "found" $20.26 in every result, from the year
+2026), matches settings in any letter case, and reads the whole alert. Those fixes changed no verdict. It passes 8 of 9. The
+citation slip still fails, as it should.</p>
 <p><b>Problem paths, live.</b> In 6 of the 9 runs the model's first diagnosis broke the format: its hypothesis ran over the
 1,000-character limit. The loop sent it back with that reason, and each time the model shortened it on the next step. In the
 missing-evidence runs, the deploy list failed every time it was called (4 calls in 3 runs). One run asked for it twice.</p>
 <p><b>Offline tests.</b> {cli_count()} tests, with no model and no Docker: the three tools on hand-written fixtures and on the
 captured data; the loop's problem paths (a reply that is not JSON, a tool not offered, bad arguments, a citation of a call that
-never ran, three invalid replies in a row, the tool budget, a model that times out, text in a log line that tries to give the
-model orders); every check, passing and failing; the copied rule; the Claude Code adapter against a fake program; and an exact
-replay of every live run.</p>
+never ran, three invalid replies in a row, the step, tool and time budgets, a model that times out, a tool that fails mid-run,
+text in a log line that tries to give the model orders); every check, passing and failing; the copied rule; the Claude Code
+adapter against a fake program; an exact replay of every live run; and every command in the README, run as its own process.
+One test covers each of the loop's safety guarantees: a code review on 2026-11-21 UTC took nine of them out of the code one at a
+time and found that the tests still passed. With these tests, each one taken out fails a test.</p>
 <p><b>Limits.</b> Three runs per case show the agent working, not how often it works. The tools read saved data, not a live
-system. The checks match facts as text: they do not check counts, and the cause check reads words. One model was tested.</p>
+system. The checks match facts as written (ids, amounts, times, settings, offsets). They skip counts and facts written out in
+words ("offsets 95, 96 and 97"), and the cause check reads words. One model was tested.</p>
 
 <h2>8. How to run it</h2>
 <pre># set up (Python 3.12)
@@ -389,7 +399,10 @@ python3.12 -m venv .venv
 .venv/bin/python -m diagnosis_agent cases
 # one offline run with the scripted mock model
 .venv/bin/python -m diagnosis_agent run missing-deploys --model scripted
-# replay a recorded live run, offline, and check it reproduces
+# a recorded live run, step by step: each reason, decision, call and result
+.venv/bin/python -m diagnosis_agent show \\
+    runs/{SUCCESS}
+# replay it, offline, and check it reproduces
 .venv/bin/python -m diagnosis_agent replay \\
     runs/{SUCCESS}
 # every recorded run, with both versions of the checks

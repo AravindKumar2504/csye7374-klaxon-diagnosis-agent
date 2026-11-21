@@ -53,7 +53,9 @@ provider; the provider's signed webhooks, which a receiver puts on Kafka; a ledg
 double-entry ledger (PostgreSQL); a payment confirmer; Redis; and a money check that compares our books with the provider's
 own records. All data is synthetic: no real customers or money.</p>
 <table><tr><th>Case</th><th>The alert the agent got (raised by Klaxon's own rules)</th><th>Right answer (written before any run)</th></tr>
-<tr><td><b>duplicate-delivery</b><br>Payments counted twice in the books</td><td><b>MoneyCheckFailed</b>: The money check failed 2 of its 5 invariants: posted_exactly_once (5 findings), matches_provider (6 findings). By its count, our ledger is $116.97 ahead of the provider's balance.</td><td>A deploy of the ledger consumer without its dedupe (LEDGER_HANDLER=naive): every webhook the provider sends again, after an acknowledgement it never got, is booked a second time.</td></tr><tr><td><b>poison-message</b><br>The ledger stops booking: a poison message</td><td><b>BooksBehindProvider</b>: Our books cannot catch up with the provider: at each of the last 2 evaluations, the money check waited 15 s and could not settle up to its cutoff. At the last one, messages up to it were not handled yet: ledger 176.</td><td>A deploy of the ledger consumer that retries unreadable messages forever (BAD_EVENTS=retry), then one unreadable event from the provider (a payment.updated with its amount as a decimal string): the ledger consumer is stuck on it, and books nothing behind it.</td></tr><tr><td><b>missing-deploys</b><br>Payments counted twice in the books, with the deploy list unavailable</td><td><b>MoneyCheckFailed</b>: The money check failed 2 of its 5 invariants: posted_exactly_once (5 findings), matches_provider (6 findings). By its count, our ledger is $116.97 ahead of the provider's balance. The deploy list answers with a docker timeout (simulated).</td><td>A deploy of the ledger consumer without its dedupe (LEDGER_HANDLER=naive): every webhook the provider sends again, after an acknowledgement it never got, is booked a second time. Docker did not answer the tool that reads it, so the deploy list could not be read: a right diagnosis says what it could not check, and claims nothing it has no evidence for, such as which deploy brought the change, or when.</td></tr></table>
+<tr><td><b>duplicate-delivery</b><br>Payments counted twice in the books</td><td><b>MoneyCheckFailed</b>: The money check failed 2 of its 5 invariants: posted_exactly_once (5 findings), matches_provider (6 findings). By its count, our ledger is $116.97 ahead of the provider's balance.</td><td>A deploy of the ledger consumer without its dedupe (LEDGER_HANDLER=naive): every webhook the provider sends again, after an acknowledgement it never got, is booked a second time.</td></tr><tr><td><b>poison-message</b><br>The ledger stops booking: a poison message</td><td><b>BooksBehindProvider</b>: Our books cannot catch up with the provider: at each of the last 2 evaluations, the money check waited 15 s and could not settle up to its cutoff. At the last one, messages up to it were not handled yet: ledger 176.</td><td>A deploy of the ledger consumer that retries unreadable messages forever (BAD_EVENTS=retry), then one unreadable event from the provider (a payment.updated with its amount as a decimal string): the ledger consumer is stuck on it, and books nothing behind it.</td></tr><tr><td><b>missing-deploys</b><br>Payments counted twice in the books, with the deploy list unavailable</td><td><b>MoneyCheckFailed</b>: The money check failed 2 of its 5 invariants: posted_exactly_once (5 findings), matches_provider (6 findings). By its count, our ledger is $116.97 ahead of the provider's balance.</td><td>A deploy of the ledger consumer without its dedupe (LEDGER_HANDLER=naive): every webhook the provider sends again, after an acknowledgement it never got, is booked a second time. Docker did not answer the tool that reads it, so the deploy list could not be read: a right diagnosis says what it could not check, and claims nothing it has no evidence for, such as which deploy brought the change, or when.</td></tr></table>
+<p><code>missing-deploys</code> gets the same alert as incident 1. What differs is outside the alert: its deploy list answers
+every call with a docker timeout (simulated).</p>
 <p><b>How the data was made.</b> <code>scripts/capture_incident.py</code> drove Klaxon's own fault runner on its live stack (Klaxon
 at commit <code>fef450b</code>), on 2026-11-20 UTC: synthetic traffic (3 payments a second), a warm-up, the fault injected, then
 Klaxon's alert rules until one fired. At that moment, with the fault still in place, the script called Klaxon's own read-only
@@ -148,12 +150,13 @@ answer. Run <code>2026-11-20T111408Z_missing-deploys_claude-opus-5-5</code> (Cla
 <code>mode=naive</code> in the consumer's own logs, and said the setting change was unconfirmed. Version 1 of the checks failed
 this run on one point: its proposed fix named <code>LEDGER_HANDLER=idempotent</code>, which no result states. Version 2
 reads the fix as a proposal and passes it:</p>
-<ul class='checks'><li><b>pass</b> stopped_with_diagnosis: the run stopped on diagnosed</li><li><b>pass</b> names_the_cause: the rule says: names the cause</li><li><b>pass</b> citations_ran: every cited call ran</li><li><b>pass</b> cited_results_hold_the_facts: every fact in the evidence is in the result it cites</li><li><b>pass</b> hypothesis_facts_in_results: 3 fact(s) in the hypothesis, all in a result or the alert</li><li><b>pass</b> read_only: only read-only tools ran, and the fix was proposed, not applied</li><li><b>pass</b> says_what_it_could_not_check: it says the deploy list could not be read</li><li><b>pass</b> claims_nothing_withheld: it names nothing only the deploy list holds</li></ul>
+<ul class='checks'><li><b>pass</b> stopped_with_diagnosis: the run stopped on diagnosed</li><li><b>pass</b> names_the_cause: the rule says: names the cause</li><li><b>pass</b> citations_ran: every cited call ran</li><li><b>pass</b> cited_results_hold_the_facts: every fact in the evidence is in the result it cites</li><li><b>pass</b> hypothesis_facts_in_results: 8 fact(s) in the hypothesis, all in a result or the alert</li><li><b>pass</b> read_only: only read-only tools ran, and the fix was proposed, not applied</li><li><b>pass</b> says_what_it_could_not_check: it says the deploy list could not be read</li><li><b>pass</b> claims_nothing_withheld: it names nothing only the deploy list holds</li></ul>
 
 <h2>7. Testing and results</h2>
 <p>Nine live runs, three per case, plus one run the seat's 5-hour limit stopped at its first call (kept as recorded, counted
-as not run, and run again after the reset). In all 73 model calls, $3.58 at API prices by Claude
-Code's own estimate (the runs used Aravind's university seat, which is not billed per call).</p>
+as not run, and run again after the reset). In all 73 model calls: 71 in the nine runs, and
+the stopped run's 2 failed calls. $3.58 at API prices by Claude Code's own estimate (the runs used
+Aravind's university seat, which is not billed per call).</p>
 <table class='results'><thead><tr><th>Started (UTC)</th><th>Case</th><th>Stop</th><th>Steps</th><th>Tool calls</th><th>Cause (rule)</th><th>Checks v1</th><th>Checks v2</th><th>Confidence</th><th>Seconds</th></tr></thead><tbody><tr><td>09:18:14</td><td>duplicate-delivery</td><td>diagnosed</td><td>8</td><td>6</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.85</td><td>46</td></tr><tr><td>09:19:00</td><td>poison-message</td><td>diagnosed</td><td>8</td><td>6</td><td>names the cause</td><td>pass</td><td>pass</td><td>0.8</td><td>47</td></tr><tr><td>09:19:47</td><td>missing-deploys</td><td>diagnosed</td><td>9</td><td>8</td><td>names the cause</td><td>fail</td><td>fail</td><td>0.6</td><td>40</td></tr><tr><td>09:20:28</td><td>duplicate-delivery</td><td>diagnosed</td><td>5</td><td>4</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.85</td><td>28</td></tr><tr><td>09:20:55</td><td>poison-message</td><td>not run (seat limit)</td><td>2</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1</td></tr><tr><td>11:13:43</td><td>poison-message</td><td>diagnosed</td><td>5</td><td>4</td><td>names the cause</td><td>pass</td><td>pass</td><td>0.8</td><td>25</td></tr><tr><td>11:14:08</td><td>missing-deploys</td><td>diagnosed</td><td>9</td><td>7</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.85</td><td>49</td></tr><tr><td>11:14:57</td><td>duplicate-delivery</td><td>diagnosed</td><td>9</td><td>7</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.85</td><td>56</td></tr><tr><td>11:15:53</td><td>poison-message</td><td>diagnosed</td><td>8</td><td>6</td><td>names the cause</td><td>pass</td><td>pass</td><td>0.8</td><td>46</td></tr><tr><td>11:16:40</td><td>missing-deploys</td><td>diagnosed</td><td>10</td><td>8</td><td>names the cause</td><td>fail</td><td>pass</td><td>0.75</td><td>65</td></tr></tbody></table>
 <p><b>The cause.</b> Klaxon's rule (rubric version 4, copied unchanged and checked against Klaxon's own) says all 9 runs name the
 recorded cause. It reads words, not meaning. In Klaxon, it agreed with Aravind's own blind verdicts on 27 of the 40 runs he
@@ -163,19 +166,26 @@ missing deploys. So the evidence checks below matter more than the rule's verdic
 runs stated a total they had worked out themselves: "$134.47", the four payments counted twice. The sum is right (16.97 +
 19.29 + 66.38 + 31.83), but no result states it, and version 1 only finds facts that a result states. One named a setting only
 in its proposed fix. One cited the wrong call: "ledger-consumer did skip duplicates ('already processed') up to evt_000268 at 07:41:32 and has logged no skip since. This dates the loss of dedup to just before the first duplicate, evt_000288." cites <code>c8</code>, whose result does not hold
-<code>evt_000288</code> (the money check's result does). Version 2 was written after reading those
-results, and is labeled so: it also accepts a sum of the money check's own findings, and reads the proposed fix as a proposal.
-It passes 8 of 9. The citation slip still fails, as it should.</p>
+<code>evt_000288</code> (the money check's result does). Version 1 also read a time only
+with its date, and no diagnosis gave one, so it checked no time at all. Version 2 was written after the runs, and is labeled
+so. After reading version 1's results, it also accepts any total of the money check's own findings, and reads the proposed fix
+as a proposal. On 2026-11-21 UTC, after a code review, it also reads times with no date and offsets in short forms, counts an
+amount in cents only beside a key that ends in <code>_cents</code> (version 1 "found" $20.26 in every result, from the year
+2026), matches settings in any letter case, and reads the whole alert. Those fixes changed no verdict. It passes 8 of 9. The
+citation slip still fails, as it should.</p>
 <p><b>Problem paths, live.</b> In 6 of the 9 runs the model's first diagnosis broke the format: its hypothesis ran over the
 1,000-character limit. The loop sent it back with that reason, and each time the model shortened it on the next step. In the
 missing-evidence runs, the deploy list failed every time it was called (4 calls in 3 runs). One run asked for it twice.</p>
-<p><b>Offline tests.</b> 122 tests, with no model and no Docker: the three tools on hand-written fixtures and on the
+<p><b>Offline tests.</b> 205 tests, with no model and no Docker: the three tools on hand-written fixtures and on the
 captured data; the loop's problem paths (a reply that is not JSON, a tool not offered, bad arguments, a citation of a call that
-never ran, three invalid replies in a row, the tool budget, a model that times out, text in a log line that tries to give the
-model orders); every check, passing and failing; the copied rule; the Claude Code adapter against a fake program; and an exact
-replay of every live run.</p>
+never ran, three invalid replies in a row, the step, tool and time budgets, a model that times out, a tool that fails mid-run,
+text in a log line that tries to give the model orders); every check, passing and failing; the copied rule; the Claude Code
+adapter against a fake program; an exact replay of every live run; and every command in the README, run as its own process.
+One test covers each of the loop's safety guarantees: a code review on 2026-11-21 UTC took nine of them out of the code one at a
+time and found that the tests still passed. With these tests, each one taken out fails a test.</p>
 <p><b>Limits.</b> Three runs per case show the agent working, not how often it works. The tools read saved data, not a live
-system. The checks match facts as text: they do not check counts, and the cause check reads words. One model was tested.</p>
+system. The checks match facts as written (ids, amounts, times, settings, offsets). They skip counts and facts written out in
+words ("offsets 95, 96 and 97"), and the cause check reads words. One model was tested.</p>
 
 <h2>8. How to run it</h2>
 <pre># set up (Python 3.12)
@@ -187,7 +197,10 @@ python3.12 -m venv .venv
 .venv/bin/python -m diagnosis_agent cases
 # one offline run with the scripted mock model
 .venv/bin/python -m diagnosis_agent run missing-deploys --model scripted
-# replay a recorded live run, offline, and check it reproduces
+# a recorded live run, step by step: each reason, decision, call and result
+.venv/bin/python -m diagnosis_agent show \
+    runs/2026-11-20T091900Z_poison-message_claude-opus-5-5
+# replay it, offline, and check it reproduces
 .venv/bin/python -m diagnosis_agent replay \
     runs/2026-11-20T091900Z_poison-message_claude-opus-5-5
 # every recorded run, with both versions of the checks
