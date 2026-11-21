@@ -109,3 +109,46 @@ def test_damaged_data_is_refused(incidents):
     (folder / "logs.jsonl").write_text('{"time": 5}\n')
     with pytest.raises(IncidentDataError):
         IncidentTools(folder).open()
+
+
+def test_unreadable_data_is_refused_with_its_folder_named(incidents):
+    folder = incidents / "duplicate-delivery"
+    (folder / "money_check.json").write_text("{not json")
+    with pytest.raises(IncidentDataError, match=r"duplicate-delivery cannot be read \(JSONDecodeError\)"):
+        IncidentTools(folder).open()
+
+
+def test_search_logs_matches_text_in_a_message_too(incidents):
+    tools, _ = opened(incidents / "duplicate-delivery")
+    _, body = result(tools, "search_logs", {"contains": "previous instructions"})
+    assert body["matched"] == 1 and body["lines"][0]["level"] == "WARNING"  # the words are only in its message
+
+
+def test_an_unknown_tool_and_arguments_that_are_not_an_object_are_tool_errors(incidents):
+    tools, _ = opened(incidents / "duplicate-delivery")
+    answer, _ = result(tools, "rollback_deploy")
+    assert answer.is_error and answer.text == "Unknown tool: rollback_deploy"
+    for arguments in ([["service", "ledger-consumer"]], "evt_000101", None, 7):
+        answer = tools.call("search_logs", arguments, 5.0)
+        assert answer.is_error and answer.text == "arguments must be a JSON object"
+
+
+def test_a_result_too_large_is_refused_with_how_to_ask_for_less(incidents, monkeypatch):
+    from diagnosis_agent import tools as module
+
+    monkeypatch.setattr(module, "MAX_RESULT", 200)
+    tools, _ = opened(incidents / "duplicate-delivery")
+    answer, _ = result(tools, "search_logs")
+    assert answer.is_error and answer.text.startswith("the result was too large") and "a lower limit" in answer.text
+
+
+def test_a_bug_in_a_tool_is_a_tool_error_the_model_can_read(incidents, monkeypatch):
+    from diagnosis_agent import tools as module
+
+    def broken(incident, arguments):
+        raise KeyError("time")
+
+    monkeypatch.setattr(module, "search_logs", broken)
+    tools, _ = opened(incidents / "duplicate-delivery")
+    answer, _ = result(tools, "search_logs")
+    assert answer.is_error and answer.text == "the tool failed unexpectedly (KeyError)"

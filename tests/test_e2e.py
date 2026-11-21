@@ -1,8 +1,8 @@
 """End to end: the command line as a person runs it, each command in its own process, on the repo's real data.
 
-Every command in README.md that needs no model is run here, exactly as written there, and checked for its exit code and
-its words. A live run is refused while live calls are switched off (conftest.py switches them off for every test), and
-leaves nothing behind.
+Every command in README.md that needs no model is run here as written there (a run's folder goes to a temporary folder),
+and checked for its exit code and its words. A live run is refused while live calls are switched off (conftest.py
+switches them off for every test), and leaves nothing behind.
 """
 
 from __future__ import annotations
@@ -36,12 +36,13 @@ def test_cases_lists_the_three_cases_and_their_alerts():
     assert "withheld: recent_deploys" in done.stdout
 
 
-def test_prompt_prints_the_system_prompt_with_the_three_tools():
-    done = cli_run("prompt", "poison-message")
+@pytest.mark.parametrize("name", list(cases.CASES))
+def test_prompt_prints_the_system_prompt_with_the_three_tools(name):
+    done = cli_run("prompt", name)
     assert done.returncode == 0, done.stderr
     for tool in ("money_check", "search_logs", "recent_deploys"):
         assert f'"name": "{tool}"' in done.stdout
-    assert "First turn:" in done.stdout and "BooksBehindProvider" in done.stdout
+    assert "First turn:" in done.stdout and cases.get(name).alert().name in done.stdout
 
 
 def test_tool_answers_on_the_real_data_and_refuses_bad_arguments():
@@ -85,6 +86,22 @@ def test_replay_from_the_command_line_reproduces(folder):
     done = cli_run("replay", str(folder.relative_to(REPO)))
     assert done.returncode == 0, done.stdout + done.stderr
     assert "Reproduced" in done.stdout
+
+
+@pytest.mark.parametrize("folder", LIVE, ids=[folder.name for folder in LIVE])
+def test_show_prints_each_live_run_step_by_step(folder):
+    done = cli_run("show", str(folder.relative_to(REPO)))
+    assert done.returncode == 0, done.stdout + done.stderr
+    trace = [json.loads(line) for line in (folder / "trace.jsonl").read_text().splitlines()]
+    for record in trace:
+        if record["kind"] == "step":
+            assert f"\nStep {record['step']}: " in done.stdout
+        if record.get("ran"):
+            assert f"back: {record['ran']['call_id']}, " in done.stdout
+    assert f"Stopped: {trace[-1]['reason']}" in done.stdout
+    assert (
+        "version 1 (committed before the live runs)" in done.stdout and "version 2 (written after them)" in done.stdout
+    )
 
 
 @pytest.mark.parametrize("folder", LIVE, ids=[folder.name for folder in LIVE])

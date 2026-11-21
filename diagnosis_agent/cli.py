@@ -6,7 +6,9 @@
     run CASE --model scripted     one offline run with the scripted mock model (no model is called)
     run CASE --model MODEL_ID     one live run: Claude through Claude Code on the seat (claude-opus-5-5)
     replay FOLDER                 replay a recorded live run offline, and check that it reproduces exactly
-    check FOLDER [FOLDER ...]     check runs against their evidence; --write saves check.json beside each
+    show FOLDER                   a run step by step, from its files: each reason, decision, call and result
+    check FOLDER [FOLDER ...]     check runs against their evidence (version 2 unless --version 1); --write saves
+                                  the result beside each run (check-v2.json, or check.json for version 1)
     report [FOLDER ...]           one line per run, and counts per case (default: every run in runs/)
 
 New for this mini-project, except where it reuses Klaxon's code (the loop, the adapters, record and replay).
@@ -40,26 +42,107 @@ def _new_folder(parent: Path, stem: str) -> Path:
     return folder
 
 
+def _print_diagnosis(found: dict) -> None:
+    """A diagnosis, as the loop accepted it: a dict, as Diagnosis.as_dict() gives it and the trace keeps it."""
+    print(f"Hypothesis: {clean_text(found['hypothesis'])}")
+    print(f"Confidence: {found['confidence']:g}")
+    fix = found["proposed_fix"]
+    print(f"Proposed fix (not applied): {fix['kind']} {clean_text(fix['target'], 200)}: {clean_text(fix['summary'])}")
+    print(f"Blast radius: {clean_text(found['blast_radius'])}")
+    print(f"Rollback plan: {clean_text(found['rollback_plan'])}")
+    print("Evidence:")
+    for item in found["evidence"]:
+        print(f"  {item['call_id']} {item['tool']}: {clean_text(item['shows'])}")
+
+
 def _print_result(result: loop.RunResult, folder: Path | None = None) -> None:
     print(f"Stopped: {result.reason} ({clean_text(result.detail, 300)})")
     print(f"Steps: {result.steps}, tool calls: {result.tool_calls}, {result.seconds:.1f} s")
     if result.diagnosis is not None:
-        found = result.diagnosis
-        print(f"Hypothesis: {clean_text(found.hypothesis)}")
-        print(f"Confidence: {found.confidence:g}")
-        fix = found.proposed_fix
-        print(f"Proposed fix (not applied): {fix.kind} {clean_text(fix.target, 200)}: {clean_text(fix.summary)}")
-        for item in found.evidence:
-            print(f"  {item.call_id} {item.tool}: {clean_text(item.shows)}")
+        _print_diagnosis(result.diagnosis.as_dict())
     if folder is not None:
         print(f"Saved in {clean_text(str(folder))}")
 
 
+WHEN = {1: "committed before the live runs", 2: "written after them"}
+
+
 def _print_check(result: dict) -> None:
     verdict = "PASSED every check" if result["passed"] else "FAILED a check"
-    print(f"\nChecked against the evidence ({result['label'].split(':')[0]}): {verdict}")
+    version = result.get("version", 1)
+    print(f"\nChecked against the evidence, by code: version {version} ({WHEN[version]}): {verdict}")
     for item in result["checks"]:
         print(f"  [{'pass' if item['passed'] else 'FAIL'}] {item['check']}: {clean_text(item['detail'], 300)}")
+
+
+def _result_line(call: dict) -> str:
+    """What one tool call returned, in one line, from the run's own record of the result."""
+    text = call["text"]
+    if call["is_error"]:
+        return ("error, simulated" if call.get("simulated_by") else "error") + f": {clean_text(text, 200)}"
+    try:
+        body = json.loads(text)
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return clean_text(text, 200)
+    if call["tool"] == "money_check":
+        invariants = [item for item in body.get("invariants") or [] if isinstance(item, dict)]
+        failed = [item for item in invariants if not item.get("passed")]
+        if body.get("outcome") == "could not run":
+            return clean_text(f"could not run: {body.get('reason', '')}", 300)
+        if failed:
+            counts = ", ".join(f"{item.get('name')} ({len(item.get('evidence') or [])} findings)" for item in failed)
+            return clean_text(f"{body.get('outcome')}: {len(failed)} of {len(invariants)} invariants: {counts}", 300)
+        return clean_text(f"{body.get('outcome')}: all {len(invariants)} invariants held", 300)
+    if call["tool"] == "search_logs":
+        lines = [line for line in body.get("lines") or [] if isinstance(line, dict)]
+        said = f"{body.get('matched')} line(s) matched"
+        if lines:
+            newest, fields = lines[0], lines[0].get("fields") or {}
+            more = [
+                f"{key} {fields[key]}" for key in ("event_id", "source", "error", "reason", "mode") if key in fields
+            ]
+            said += (
+                f"; newest: {str(newest.get('time', ''))[11:23]} {newest.get('service')} {newest.get('level')}"
+                f" {newest.get('message')}" + (f" ({', '.join(more)})" if more else "")
+            )
+        return clean_text(said, 300)
+    if call["tool"] == "recent_deploys":
+        deploys = [item for item in body.get("deploys") or [] if isinstance(item, dict)]
+        if not deploys:
+            return "no deploys listed"
+        newest = deploys[0]
+        settings = ", ".join(f"{key}={value}" for key, value in (newest.get("settings") or {}).items())
+        when = str(newest.get("deployed_at", ""))[11:19]
+        return clean_text(
+            f"{len(deploys)} deploys; newest: {newest.get('service')} at {when}"
+            + (f", {settings}" if settings else ""),
+            300,
+        )
+    return clean_text(text, 200)
+
+
+def _print_steps(run: dict) -> None:
+    """Each step of a run, from its trace: the model's reason, the loop's decision, the call and what came back."""
+    for step in run["trace"]:
+        if step.get("kind") != "step":
+            continue
+        proposed, ran = step.get("proposed") or {}, step.get("ran")
+        if ran:
+            arguments = json.dumps(ran.get("arguments") or {}, ensure_ascii=False)
+            print(f"\nStep {step['step']}: {ran['tool']} {clean_text(arguments, 300)}")
+        else:
+            print(f"\nStep {step['step']}: {proposed.get('action') or 'no usable reply'}")
+        if step.get("error"):
+            print(f"  model call failed: {clean_text(step['error'], 300)}")
+        if proposed.get("why"):
+            print(f"  why:  {clean_text(str(proposed['why']), 400)}")
+        if step.get("why"):
+            decision = "allowed" if step.get("allowed") else "refused" if step.get("allowed") is False else "loop"
+            print(f"  {decision}: {clean_text(step['why'], 300)}")
+        if ran:
+            print(f"  back: {ran['call_id']}, {_result_line(run['calls'][ran['call_id']])}")
 
 
 def _cases(_: argparse.Namespace) -> int:
@@ -86,9 +169,14 @@ def _prompt(args: argparse.Namespace) -> int:
 
 def _tool(args: argparse.Namespace) -> int:
     case = cases.get(args.case)
+    try:
+        arguments = json.loads(args.arguments)
+    except ValueError as exc:
+        print(f"TOOL ERROR: the arguments are not JSON: {clean_text(str(exc), 200)}")
+        return 1
     tools = case.tools()
     tools.open()
-    result = tools.call(args.name, json.loads(args.arguments), loop.TOOL_TIMEOUT)
+    result = tools.call(args.name, arguments, loop.TOOL_TIMEOUT)
     try:
         shown = json.dumps(json.loads(result.text), indent=2, ensure_ascii=False)
     except ValueError:
@@ -166,6 +254,8 @@ def _run(args: argparse.Namespace, argv: list[str]) -> int:
     run_file.write_text(
         json.dumps({"case": case.name, "model": args.model, "header": header, "result": summary}, indent=2) + "\n"
     )
+    _print_steps(check.read_run(folder))
+    print()
     _print_result(result, folder)
     check.write_check(folder, version=1)  # the version committed before the live runs, kept for every run
     checked = check.write_check(folder, version=2)
@@ -178,22 +268,53 @@ def _replay(args: argparse.Namespace) -> int:
         with tempfile.TemporaryDirectory(prefix="diagnosis-replay-") as scratch:
             result, whole, differences = loop.replay(args.folder, Path(scratch) / loop.TRACE)
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"Cannot replay {clean_text(str(args.folder))}: {type(exc).__name__}: {clean_text(str(exc), 300)}")
+        print(
+            f"Cannot replay {clean_text(str(args.folder))}: {type(exc).__name__}: {clean_text(str(exc), 300)}",
+            file=sys.stderr,
+        )
         return 2
     _print_result(result)
     if differences:
         print("Not reproduced:\n" + "\n".join(f"  {difference}" for difference in differences))
         return 1
     if not whole:
-        print("Reproduced up to the step the recorded run stopped in (it stopped on its time budget or an interrupt).")
+        print(
+            "Reproduced up to the step the recorded run stopped in (it stopped on its time budget, an interrupt or a"
+            " crash)."
+        )
         return 0
     print("Reproduced: the same prompts, replies, decisions, tool results and stop as the recorded run.")
+    return 0
+
+
+def _show(args: argparse.Namespace) -> int:
+    if not check.is_run(args.folder):
+        print(
+            f"Not a run folder (no trace, tool results and run.json): {clean_text(str(args.folder))}", file=sys.stderr
+        )
+        return 2
+    run = check.read_run(args.folder)
+    start, stop = run["trace"][0], run["trace"][-1]
+    alert = start.get("extra", {}).get("alert", {})
+    print(f"{args.folder.name}: case {run['case'].name}, model {start.get('model')} ({start.get('source')})")
+    print(f"Alert: {alert.get('name')}, fired at {alert.get('fired_at')}: {clean_text(str(alert.get('summary', '')))}")
+    _print_steps(run)
+    totals = stop.get("totals", {})
+    print(f"\nStopped: {stop.get('reason')} ({clean_text(stop.get('detail', ''), 300)})")
+    print(f"Steps: {totals.get('steps')}, tool calls: {totals.get('tool_calls')}, {totals.get('seconds', 0):.1f} s")
+    if stop.get("diagnosis"):
+        _print_diagnosis(stop["diagnosis"])
+    for version in check.CHECK_FILES:
+        _print_check(check.check_run(args.folder, version=version))
     return 0
 
 
 def _check(args: argparse.Namespace) -> int:
     failed = 0
     for folder in args.folders:
+        if not check.is_run(folder):
+            print(f"Not a run folder (no trace, tool results and run.json): {clean_text(str(folder))}", file=sys.stderr)
+            return 2
         if args.write:
             result = check.write_check(folder, version=args.version)
         else:
@@ -301,9 +422,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     again = commands.add_parser("replay", help="replay a recorded live run offline")
     again.add_argument("folder", type=Path)
+    show = commands.add_parser("show", help="a run step by step, from its files; calls nothing")
+    show.add_argument("folder", type=Path)
     checks = commands.add_parser("check", help="check runs against their evidence")
     checks.add_argument("folders", type=Path, nargs="+")
-    checks.add_argument("--write", action="store_true", help="save the result beside each run")
+    checks.add_argument("--write", action="store_true", help="save the result beside each run, as its check file")
     checks.add_argument("--version", type=int, choices=(1, 2), default=2, help="version of the checks (default 2)")
     report = commands.add_parser("report", help="one line per run, and counts per case")
     report.add_argument("folders", type=Path, nargs="*")
@@ -311,6 +434,5 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "run":
         return _run(args, argv)
-    return {"cases": _cases, "prompt": _prompt, "tool": _tool, "replay": _replay, "check": _check, "report": _report}[
-        args.command
-    ](args)
+    commands_by_name = {"cases": _cases, "prompt": _prompt, "tool": _tool, "replay": _replay, "show": _show}
+    return (commands_by_name | {"check": _check, "report": _report})[args.command](args)

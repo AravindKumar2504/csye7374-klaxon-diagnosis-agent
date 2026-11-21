@@ -208,16 +208,21 @@ class IncidentTools:
             raise ToolError("the tools were not opened")
         if name not in SCHEMAS:
             return ToolResult(f"Unknown tool: {clean_text(str(name), 100)}", True)
+        if not isinstance(arguments, Mapping):
+            return ToolResult("arguments must be a JSON object", True)
         try:
             checked = check_arguments(SCHEMAS[name], dict(arguments))
         except ToolInputError as exc:
             return ToolResult(clean_text(str(exc), 2 * MAX_FIELD), True)
-        if name == "search_logs":
-            result = search_logs(self.incident, checked)
-        elif name == "recent_deploys":
-            result = self.incident.deploys
-        else:
-            result = self.incident.money
+        try:
+            if name == "search_logs":
+                result = search_logs(self.incident, checked)
+            elif name == "recent_deploys":
+                result = self.incident.deploys
+            else:
+                result = self.incident.money
+        except Exception as exc:  # as in Klaxon's tool server: a bug in a tool is still an answer the model can read
+            return ToolResult(f"the tool failed unexpectedly ({type(exc).__name__})", True)
         text = json.dumps(clean(result), ensure_ascii=False)
         if len(text) > MAX_RESULT:
             return ToolResult(

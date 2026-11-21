@@ -77,7 +77,7 @@ RETRYABLE = (ModelError, ModelTimeout)
 FULLWIDTH_AT = chr(0xFF20)  # as the live adapter writes at signs in turns: never "@path" on Claude Code's command line
 # What a reader can take for the end of a line, once cleaning has dropped the control characters: a newline, and
 # the Unicode line and paragraph separators, which json.dumps writes as they are when ensure_ascii is off.
-LINE_BREAKS = {"\n": "\\n", " ": "\\u2028", " ": "\\u2029"}
+LINE_BREAKS = {"\n": "\\n", "\u2028": "\\u2028", "\u2029": "\\u2029"}
 TRACE, RECORDING, TOOL_RESULTS = "trace.jsonl", "model-recording.jsonl", "tool-results.jsonl"
 
 
