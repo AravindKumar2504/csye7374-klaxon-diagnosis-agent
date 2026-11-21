@@ -105,6 +105,11 @@ Most of the agent is copied from Klaxon at commit `fef450b`. Each copied file sa
 
 New here: `tools.py` (the three tools on the captured data), `cases.py`, `check.py`, `scripted.py`, `cli.py`, the tests, and the two scripts.
 
+## Documents
+
+- `docs/Klaxon_Diagnosis_Agent_Aravind_Sundaravadivelu.pdf`: the project document, built from the incidents and the recorded runs by `scripts/build_report.py` (source: `docs/report.html`).
+- `docs/learned.md` and `docs/contributions.md`: Aravind's own words, as they appear in the class deck and the PDF.
+
 ## AI use
 
 Claude (through Claude Code) wrote most of the code and docs, in Klaxon and here, under Aravind's direction. He chose the project, the scope, the three tools, the two incidents and the missing-evidence case, how Klaxon is reused, the model, and the number of live runs, and he reviewed the result. Every model reply shown anywhere in this repo is one actually received, saved with its date and model.

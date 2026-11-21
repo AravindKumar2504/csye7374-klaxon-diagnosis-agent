@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -259,7 +260,8 @@ def main() -> int:
         paragraphs = [
             p.strip() for p in contributions_file.read_text().split("\n\n") if p.strip() and not p.startswith("#")
         ]
-        contributions = "".join(f"<p>{e(p)}</p>" for p in paragraphs)
+        # His text as written; only **bold** becomes bold.
+        contributions = "".join(f"<p>{re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', e(p))}</p>" for p in paragraphs)
     else:
         contributions = "<p class='todo'>[Aravind writes this section, in his own words.]</p>"
     tools_rows = "".join(
