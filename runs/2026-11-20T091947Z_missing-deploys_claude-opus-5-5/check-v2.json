@@ -1,5 +1,5 @@
 {
-  "label": "Checked by code (diagnosis_agent.check) against the tool results this run received: not by a model, and not by a person. The cause check is a rule: Klaxon's rubric version 4. Version 2 of the checks, written on 2026-11-20 after reading version 1's results on the live runs: a dollar amount may also be a sum of one money check's findings, and the proposed fix is read as a proposal, not a claim.",
+  "label": "Checked by code (diagnosis_agent.check) against the tool results this run received: not by a model, and not by a person. The cause check is a rule: Klaxon's rubric version 4. Version 2 of the checks, written after the live runs. On 2026-11-20 UTC, after reading version 1's results on them: a dollar amount may also be a sum of one money check's findings, and the proposed fix is read as a proposal, not a claim. On 2026-11-21 UTC, after a code review: times with no date and offsets in short forms are read too, an amount in cents counts only beside a key ending in _cents, settings match in any case, and the whole alert is a source.",
   "version": 2,
   "run": "2026-11-20T091947Z_missing-deploys_claude-opus-5-5",
   "case": "missing-deploys",
@@ -108,14 +108,19 @@
         {
           "call_id": "c3",
           "facts": [
-            "evt_000308"
+            "evt_000308",
+            "provider-events/2@95",
+            "provider-events/2@96",
+            "provider-events/2@97"
           ],
           "not_in_that_result": []
         },
         {
           "call_id": "c4",
           "facts": [
-            "evt_000308"
+            "evt_000308",
+            "07:41:41",
+            "07:41:43"
           ],
           "not_in_that_result": []
         },
@@ -128,7 +133,8 @@
           "call_id": "c8",
           "facts": [
             "evt_000268",
-            "evt_000288"
+            "evt_000288",
+            "07:41:32"
           ],
           "not_in_that_result": [
             "evt_000288"
@@ -149,7 +155,7 @@
     {
       "check": "hypothesis_facts_in_results",
       "passed": true,
-      "detail": "9 fact(s) in the hypothesis, all in a result or the alert",
+      "detail": "14 fact(s) in the hypothesis, all in a result or the alert",
       "facts": [
         "evt_000268",
         "evt_000288",
@@ -159,7 +165,12 @@
         "$66.38",
         "$31.83",
         "$17.50",
-        "$116.97"
+        "$116.97",
+        "07:41:32",
+        "07:41:41",
+        "provider-events/2@95",
+        "provider-events/2@96",
+        "provider-events/2@97"
       ]
     },
     {
@@ -178,7 +189,8 @@
       "detail": "it names nothing only the deploy list holds",
       "withheld_facts": [
         "naive",
-        "dead_letter"
+        "dead_letter",
+        "07:41:36"
       ]
     }
   ],
