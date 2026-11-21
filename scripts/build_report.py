@@ -404,9 +404,10 @@ replies are worked out by code in a fixed order: it shows the pipeline offline, 
 <p class="label">Most of the agent's code is copied from Klaxon at commit fef450b, and each copied file says so at its top. Every
 model reply in this document is one actually received, saved with its date and model.</p>
 </body></html>"""
-    OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(page)
-    print(f"wrote {OUT.relative_to(ROOT)}")
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else OUT  # default: docs/report.html
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(page)
+    print(f"wrote {out}")
     return 0
 
 
