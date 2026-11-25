@@ -15,6 +15,17 @@ The professor approved the project with a reduced scope (announcement of 2026-11
 | 1 case with missing evidence | `missing-deploys`: incident 1 again, but the deploy list does not answer (a simulated docker outage) |
 | No automatic fixes | The agent has no write tool. The fix is only proposed, and the trace records it as not applied |
 
+## The rubric, and where to see it
+
+| Rubric item | Where to see it |
+|---|---|
+| 1. Working agent | Results: 9 live runs on the approved scope; Klaxon's rule says all 9 name the recorded cause; every run replays offline (`replay`) |
+| 2. Agentic behavior | How it works: the model picks one of three tools at each step. The per-run table in Results shows the paths it chose, and `show` prints each reason it gave |
+| 3. Testing and reliability | The missing-evidence case (`missing-deploys`); the evidence checks (`check`), run by code against the tool results; 205 offline tests (`pytest -q`) |
+| 4. Demonstration | `show` prints each decision, tool call, result and the outcome; `docs/demo-poison-message.txt` and `docs/demo-missing-deploys.txt` hold that output for the two demo runs |
+| 5. Code and documentation | Run it (below); `incidents/` (the sample data); `pyproject.toml` (Python 3.12's standard library, and pytest for the tests) |
+| 6. Individual contribution | `docs/contributions.md` (also in the PDF, section 9) |
+
 ## How it works
 
 ```
@@ -87,7 +98,29 @@ Nine live runs on 2026-11-20 UTC: Claude Opus 5.5 (`claude-opus-5-5`) through Cl
 - One more run, the second of incident 2, stopped at its first call: the seat's 5-hour limit. It is kept as recorded and counted as not run, and the case was run again after the reset.
 - **What the recordings keep.** Every event Claude Code sent, as received, except its rate-limit events, and with this Mac's home folder written as `~`. So each result event still holds the login's expiry time, and the stopped run's error holds the usage limit's details. On 2026-11-21 UTC the label at the top of each recording was corrected to say so; it had said the seat's usage state was left out. The received events did not change.
 
-`.venv/bin/python -m diagnosis_agent report --markdown` prints every run's row.
+Every run, as `.venv/bin/python -m diagnosis_agent report --markdown` prints it:
+
+| Run | Case | Stop | Steps | Tool calls | Path | Rule | Checks v1 | Checks v2 | Confidence | Seconds |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-11-20T091814Z | duplicate-delivery | diagnosed | 8 | 6 | money_check > recent_deploys > search_logs > search_logs > search_logs > search_logs | names the cause | failed: hypothesis_facts_in_results | passed | 0.85 | 46 |
+| 2026-11-20T091900Z | poison-message | diagnosed | 8 | 6 | money_check > search_logs > recent_deploys > search_logs > search_logs > search_logs | names the cause | passed | passed | 0.8 | 47 |
+| 2026-11-20T091947Z | missing-deploys | diagnosed | 9 | 8 | money_check > recent_deploys > search_logs > search_logs > search_logs > search_logs > recent_deploys > search_logs | names the cause | failed: cited_results_hold_the_facts | failed: cited_results_hold_the_facts | 0.6 | 40 |
+| 2026-11-20T092028Z | duplicate-delivery | diagnosed | 5 | 4 | money_check > recent_deploys > search_logs > search_logs | names the cause | failed: hypothesis_facts_in_results | passed | 0.85 | 28 |
+| 2026-11-20T092055Z | poison-message | not run: model_error | 2 | 0 | - | - | failed: stopped_with_diagnosis | failed: stopped_with_diagnosis | - | 1 |
+| 2026-11-20T111343Z | poison-message | diagnosed | 5 | 4 | money_check > search_logs > recent_deploys > search_logs | names the cause | passed | passed | 0.8 | 25 |
+| 2026-11-20T111408Z | missing-deploys | diagnosed | 9 | 7 | money_check > recent_deploys > search_logs > search_logs > search_logs > search_logs > search_logs | names the cause | failed: hypothesis_facts_in_results | passed | 0.85 | 49 |
+| 2026-11-20T111457Z | duplicate-delivery | diagnosed | 9 | 7 | money_check > recent_deploys > search_logs > search_logs > search_logs > search_logs > search_logs | names the cause | failed: hypothesis_facts_in_results | passed | 0.85 | 56 |
+| 2026-11-20T111553Z | poison-message | diagnosed | 8 | 6 | money_check > search_logs > recent_deploys > search_logs > search_logs > search_logs | names the cause | passed | passed | 0.8 | 46 |
+| 2026-11-20T111640Z | missing-deploys | diagnosed | 10 | 8 | money_check > recent_deploys > search_logs > search_logs > search_logs > search_logs > search_logs > search_logs | names the cause | failed: cited_results_hold_the_facts, hypothesis_facts_in_results | passed | 0.75 | 65 |
+
+## Limits
+
+- Three runs per case show the agent working, not how often it works.
+- The tools read data captured from Klaxon's stack at the moment its alert fired, not a live system.
+- The checks match facts as written. They skip counts and facts written out in words, and Klaxon's cause rule reads words, not meaning.
+- Version 2 of the checks was written after the runs, and is labeled so. Version 1, committed before them, passed 3 of 9.
+- The agent did not always get it right. One run cited the wrong call for a fact, which fails both versions. One run stopped on the seat's usage limit: it is kept as recorded and counted as not run.
+- One model was tested: Claude Opus 5.5.
 
 ## Sample data
 
@@ -113,6 +146,7 @@ New here: `tools.py` (the three tools on the captured data), `cases.py`, `check.
 ## Documents
 
 - `docs/Klaxon_Diagnosis_Agent_Aravind_Sundaravadivelu.pdf`: the project document, built from the incidents and the recorded runs by `scripts/build_report.py` (source: `docs/report.html`).
+- `docs/demo-poison-message.txt` and `docs/demo-missing-deploys.txt`: the two demo runs, step by step, as `show` prints them.
 - `docs/learned.md` and `docs/contributions.md`: Aravind's own words. What he learned is in the class deck; his contributions are in the PDF.
 
 ## AI use
