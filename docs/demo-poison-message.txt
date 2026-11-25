@@ -1,0 +1,74 @@
+Output of: .venv/bin/python -m diagnosis_agent show runs/2026-11-20T091900Z_poison-message_claude-opus-5-5
+(Offline: show reads the run's own files. No model and no tool was called to make this.)
+
+2026-11-20T091900Z_poison-message_claude-opus-5-5: case poison-message, model claude-opus-5-5 (claude-code)
+Alert: BooksBehindProvider, fired at 2026-11-20T07:56:59Z: Our books cannot catch up with the provider: at each of the last 2 evaluations, the money check waited 15 s and could not settle up to its cutoff. At the last one, messages up to it were not handled yet: ledger 176.
+
+Step 1: money_check {}
+  why:  Confirm the symptom first: run the money check to see whether it can settle and what lag it reports.
+  allowed: a read-only tool on the allow-list, within the budgets
+  back: c1, could not run: not settled up to the cutoff after 60.32 s: messages up to it not handled yet: ledger 222, payment-confirmer 0
+
+Step 2: search_logs {"service": "ledger-consumer", "level": "ERROR", "minutes": 30, "limit": 20}
+  why:  Ledger lag is growing (176 -> 222) while confirmer is at 0, so check ledger-consumer errors to see why it is stuck.
+  allowed: a read-only tool on the allow-list, within the budgets
+  back: c2, 11 line(s) matched; newest: 07:58:14.254 ledger-consumer ERROR could not book; will retry the same message (source provider-events/0@229, error cannot book this event: amount must be positive integer cents)
+
+Step 3: recent_deploys {}
+  why:  Ledger-consumer is stuck retrying offset 229 with 'amount must be positive integer cents'; check recent deploys for a change such as CHARGE_AMOUNT_UNIT, BAD_EVENTS or LEDGER_HANDLER that could produce such an event.
+  allowed: a read-only tool on the allow-list, within the budgets
+  back: c3, 10 deploys; newest: ledger-consumer at 07:56:08, LEDGER_HANDLER=idempotent, BAD_EVENTS=retry
+
+Step 4: search_logs {"contains": "provider-events/0@229", "minutes": 30, "limit": 30}
+  why:  Identify the poison event at provider-events/0@229 (its event_id, type, amount) and how payment-confirmer, which uses BAD_EVENTS=dead_letter, handled the same message.
+  allowed: a read-only tool on the allow-list, within the budgets
+  back: c4, 14 line(s) matched; newest: 07:58:14.254 ledger-consumer ERROR could not book; will retry the same message (source provider-events/0@229, error cannot book this event: amount must be positive integer cents)
+
+Step 5: search_logs {"contains": "71ab345494b16303d6204e69b3a39ad3", "minutes": 30, "limit": 30}
+  why:  Follow the poison message's trace_id to see which event it was and where it came from: which webhook, which payment, and whether payments-api sent a bad amount.
+  allowed: a read-only tool on the allow-list, within the budgets
+  back: c5, 3 line(s) matched; newest: 07:56:13.095 payment-confirmer ERROR dead-lettered (source provider-events/0@229, reason cannot confirm this event: amount must be positive integer cents)
+
+Step 6: search_logs {"contains": "pay_000619", "minutes": 30, "limit": 30}
+  why:  Check payments-api for pay_000619 to see where the bad amount in evt_000681 came from: our request or the provider's webhook.
+  allowed: a read-only tool on the allow-list, within the budgets
+  back: c6, 5 line(s) matched; newest: 07:56:13.086 webhook-receiver INFO webhook queued (event_id evt_000681)
+
+Step 7: diagnose
+  why:  The evidence shows a single malformed event that ledger-consumer retries forever, blocking its partition. A ledger-consumer redeploy with BAD_EVENTS=retry happened just before. That explains the alert.
+  refused: invalid reply: diagnosis.hypothesis: must be at most 1000 characters (it has 1145)
+
+Step 8: diagnose
+  why:  Resubmitting the same diagnosis with the hypothesis shortened to fit the 1000-character limit.
+  allowed: a diagnosis that passed validation; its fix is proposed, not applied
+
+Stopped: diagnosed (confidence 0.8)
+Steps: 8, tool calls: 6, 46.7 s
+Hypothesis: ledger-consumer is blocked by a poison message, provider-events/0@229 (evt_000681, pay_000619), whose amount is invalid ('amount must be positive integer cents'). It was recreated at 07:56:08 with BAD_EVENTS=retry, so it retries that message indefinitely, every 15 s and at attempt 13+, instead of setting it aside. Every later message queues behind it, so ledger lag grows (176, then 222), the money check cannot settle, and BooksBehindProvider fires. payment-confirmer has BAD_EVENTS=dead_letter. It dead-lettered the same message and moved on, so its lag is 0. evt_000681 was a second webhook for pay_000619. The first, evt_000680 at offset 228 for 1260 cents, was booked and confirmed. Open: evt_000681's type and real amount, whether the provider truly sent a bad amount, and BAD_EVENTS's value before the 07:56:08 deploy.
+Confidence: 0.8
+Proposed fix (not applied): config_change ledger-consumer: Set BAD_EVENTS=dead_letter on ledger-consumer, matching payment-confirmer, or roll back to its settings from before 07:56:08. Restart it so it dead-letters offset 229 and drains the backlog. Then inspect evt_000681 in the dead-letter queue, check its true type and amount against the provider's records, and repair or replay it once validated. Rerun the money check to confirm it settles.
+Blast radius: This affects only how ledger-consumer handles events it cannot book: malformed events go to the dead-letter queue instead of blocking the stream. Until someone reviews it, evt_000681 stays out of the ledger, so the ledger may differ from the provider for pay_000619. Other events that fail validation would also be dead-lettered quietly, so the dead-letter queue needs monitoring and an alert.
+Rollback plan: Redeploy ledger-consumer with BAD_EVENTS=retry, its current setting. The idempotent ledger handler prevents double booking. Dead-lettered messages can be replayed from the dead-letter queue.
+Evidence:
+  c1 money_check: The money check could not run: 222 ledger messages are not yet handled and payment-confirmer has 0. This confirms the alert and shows the backlog growing.
+  c2 search_logs: ledger-consumer keeps failing on provider-events/0@229 with 'amount must be positive integer cents' and retries the same message. Backoff has reached 15 s and attempts have reached 13.
+  c3 recent_deploys: ledger-consumer was redeployed at 07:56:08 with LEDGER_HANDLER=idempotent and BAD_EVENTS=retry. payment-confirmer has BAD_EVENTS=dead_letter. No other service changed since 07:52.
+  c4 search_logs: At 07:56:13, payment-confirmer dead-lettered the same message for the same reason and moved on. ledger-consumer's endless retries started at that same moment.
+  c5 search_logs: Offset 229 is evt_000681, keyed pay_000619. webhook-receiver accepted it at 07:56:13 with HTTP 200.
+  c6 search_logs: pay_000619 already had a valid payment.succeeded event, evt_000680, for 1260 cents, which was posted and confirmed. evt_000681 is a later, malformed event for the same payment.
+
+Checked against the evidence, by code: version 1 (committed before the live runs): PASSED every check
+  [pass] stopped_with_diagnosis: the run stopped on diagnosed
+  [pass] names_the_cause: the rule says: names the cause
+  [pass] citations_ran: every cited call ran
+  [pass] cited_results_hold_the_facts: every fact in the evidence is in the result it cites
+  [pass] hypothesis_facts_in_results: 6 fact(s) in the hypothesis and fix, all in a result or the alert
+  [pass] read_only: only read-only tools ran, and the fix was proposed, not applied
+
+Checked against the evidence, by code: version 2 (written after them): PASSED every check
+  [pass] stopped_with_diagnosis: the run stopped on diagnosed
+  [pass] names_the_cause: the rule says: names the cause
+  [pass] citations_ran: every cited call ran
+  [pass] cited_results_hold_the_facts: every fact in the evidence is in the result it cites
+  [pass] hypothesis_facts_in_results: 7 fact(s) in the hypothesis, all in a result or the alert
+  [pass] read_only: only read-only tools ran, and the fix was proposed, not applied

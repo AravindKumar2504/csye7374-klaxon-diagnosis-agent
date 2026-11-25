@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "klaxon-diagnosis-agent"
+version = "0.1.0"
+description = "Klaxon's diagnosis agent: a small slice of Klaxon for the CSYE 7374 mini-project. An LLM chooses between three read-only tools to diagnose a payment incident; code checks the diagnosis against the evidence."
+requires-python = ">=3.12"
+# The agent itself needs only Python's standard library. Live runs also need Claude Code (signed in), not a library.
+dependencies = []
+
+[project.optional-dependencies]
+# The test tools, pinned to the versions Klaxon pins (requirements/dev.lock.txt at fef450b).
+dev = ["pytest==9.2.0", "iniconfig==2.3.1", "pluggy==1.7.0", "Pygments==2.21.0", "packaging>=24", "ruff==0.17.3"]
+
+[tool.setuptools.packages.find]
+include = ["diagnosis_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["UP017", "E501"]

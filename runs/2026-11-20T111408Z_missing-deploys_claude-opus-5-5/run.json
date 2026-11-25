@@ -1,0 +1,120 @@
+{
+  "case": "missing-deploys",
+  "model": "claude-opus-5-5",
+  "header": {
+    "what": "One run of Klaxon's diagnosis agent on the case missing-deploys: claude-opus-5-5 through Claude Code on Aravind's seat (live). Its tools read incident data captured from Klaxon's live stack.",
+    "case": "missing-deploys",
+    "model": "claude-opus-5-5",
+    "budgets": {
+      "steps": 10,
+      "tool_calls": 8,
+      "seconds": 600.0,
+      "retries": 2,
+      "model_retries": 1
+    },
+    "rerun_command": "python -m diagnosis_agent run missing-deploys --model claude-opus-5-5",
+    "incident": "duplicate-delivery",
+    "incident_data_sha256": {
+      "incident.json": "f2bbdd018fc6303ab5730ad6f631473223f14a16e3349524edc2a8f9ae63add1",
+      "money_check.json": "675d68ef1f5622a993b3bb8370b8e259e3d95feae6b92edf1bf79b51fe836b9b",
+      "recent_deploys.json": "a27f1858749545db11ddf7504342c333ffde151a15329e18049ff73731004158",
+      "logs.jsonl": "1e5aa5699226980b3adc481324d0273fc2f807c83784a5d1ee170c69bb9cc9c0"
+    },
+    "klaxon_commit_copied_from": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "ran_at_utc": "2026-11-20T11:14:08+00:00",
+    "ran_at_local": "2026-11-20T06:14:08-05:00",
+    "python": "3.12.14",
+    "diagnosis_agent_version": "0.1.0",
+    "code_sha256": "f102592a30be59a33b33b7f7d258ce536001c6f19b350b7f2a303e95e4d28b8e",
+    "git_commit": "1e1ad313015711bf55ecd294f2e5e37d30c72ad2",
+    "git_clean_code": true
+  },
+  "result": {
+    "reason": "diagnosed",
+    "detail": "confidence 0.85",
+    "steps": 9,
+    "tool_calls": 7,
+    "seconds": 48.919,
+    "diagnosis": {
+      "hypothesis": "ledger-consumer restarted at 07:41:49.752Z with mode=naive; its 07:40:00 start was mode=idempotent. In naive mode it no longer skips events it already posted. This was likely a LEDGER_HANDLER change, but recent_deploys failed, so that is unconfirmed. The provider redelivers webhooks until acknowledged, and webhook-receiver publishes each delivery (expected at-least-once), so evt_000308 sat at offsets 2\uff2095, 2\uff2096 and 2\uff2097. The naive consumer posted all three; evt_000288, 298, 352 and 373 were each posted twice. Duplicate payments add 1697+1929+6638+3183 cents and the refund's two extra postings subtract 1750, for +11697 cents ($116.97), matching the alert. The ledger stays balanced because each duplicate is a full double-entry transaction. Payments and refunds still match, because only the ledger consumer is affected.",
+      "evidence": [
+        {
+          "call_id": "c1",
+          "tool": "money_check",
+          "arguments": {},
+          "shows": "5 events were posted more than once (transactions 288/292, 316/319, 321/322/323, 356/359, 378/381). The ledger is +$116.97 against the provider, still balanced, and payments and refunds match the provider."
+        },
+        {
+          "call_id": "c3",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "evt_000308",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "ledger-consumer posted evt_000308 three times at 07:41:50, from offsets 2\uff2095, 2\uff2096 and 2\uff2097."
+        },
+        {
+          "call_id": "c4",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "webhook-receiver",
+            "contains": "evt_000308",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "webhook-receiver queued evt_000308 three times (07:41:41 to 07:41:43), once per provider redelivery. That is expected at-least-once delivery."
+        },
+        {
+          "call_id": "c6",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "already",
+            "minutes": 120,
+            "limit": 20
+          },
+          "shows": "Until 07:41:32, ledger-consumer logged 'already processed' and skipped redelivered events, so dedup was working."
+        },
+        {
+          "call_id": "c5",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "duplicate",
+            "minutes": 120,
+            "limit": 20
+          },
+          "shows": "There are no 'duplicate' warnings or errors from ledger-consumer; it posted the copies silently."
+        },
+        {
+          "call_id": "c7",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "start",
+            "minutes": 15,
+            "limit": 20
+          },
+          "shows": "ledger-consumer restarted at 07:41:49.752 with mode=naive; its previous start at 07:40:00 was mode=idempotent. Duplicate postings follow within a second."
+        },
+        {
+          "call_id": "c2",
+          "tool": "recent_deploys",
+          "arguments": {},
+          "shows": "recent_deploys failed (Docker did not answer), so which setting changed, and who changed it, is unconfirmed."
+        }
+      ],
+      "confidence": 0.85,
+      "proposed_fix": {
+        "kind": "config_change",
+        "target": "ledger-consumer",
+        "summary": "1. Restore idempotent mode on ledger-consumer (likely LEDGER_HANDLER=idempotent; verify once Docker answers), redeploy, and confirm the startup log shows mode=idempotent.\n2. Repair the data with compensating entries for the duplicate transactions 292, 319, 322, 323, 359 and 381, keeping the first posting of each event.\n3. Re-run the money check and confirm posted_exactly_once and matches_provider pass.\n4. Find out who or what switched the mode at 07:41:49.",
+        "applied": false
+      },
+      "blast_radius": "The restart briefly pauses ledger posting; Kafka buffers events meanwhile. Until the fix lands, every further redelivery creates more duplicates, so act promptly. The data repair changes ledger history: reversing the wrong transaction would leave the ledger wrong. Use reversals, not deletes, so history stays auditable. payment-confirmer, payments and refunds are not affected.",
+      "rollback_plan": "Redeploy ledger-consumer with the prior settings, though that would bring back the duplication. Repair reversals can themselves be reversed. Snapshot the ledger tables before the repair so they can be restored if needed."
+    }
+  }
+}

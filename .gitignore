@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+# Offline runs with the scripted mock model: made by `python -m diagnosis_agent run ... --model scripted`, not evidence.
+runs-scripted/
+.DS_Store

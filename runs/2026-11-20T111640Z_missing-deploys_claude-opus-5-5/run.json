@@ -1,0 +1,120 @@
+{
+  "case": "missing-deploys",
+  "model": "claude-opus-5-5",
+  "header": {
+    "what": "One run of Klaxon's diagnosis agent on the case missing-deploys: claude-opus-5-5 through Claude Code on Aravind's seat (live). Its tools read incident data captured from Klaxon's live stack.",
+    "case": "missing-deploys",
+    "model": "claude-opus-5-5",
+    "budgets": {
+      "steps": 10,
+      "tool_calls": 8,
+      "seconds": 600.0,
+      "retries": 2,
+      "model_retries": 1
+    },
+    "rerun_command": "python -m diagnosis_agent run missing-deploys --model claude-opus-5-5",
+    "incident": "duplicate-delivery",
+    "incident_data_sha256": {
+      "incident.json": "f2bbdd018fc6303ab5730ad6f631473223f14a16e3349524edc2a8f9ae63add1",
+      "money_check.json": "675d68ef1f5622a993b3bb8370b8e259e3d95feae6b92edf1bf79b51fe836b9b",
+      "recent_deploys.json": "a27f1858749545db11ddf7504342c333ffde151a15329e18049ff73731004158",
+      "logs.jsonl": "1e5aa5699226980b3adc481324d0273fc2f807c83784a5d1ee170c69bb9cc9c0"
+    },
+    "klaxon_commit_copied_from": "fef450b0aae7545fc3f86ba8eb70ccce2dff1676",
+    "ran_at_utc": "2026-11-20T11:16:40+00:00",
+    "ran_at_local": "2026-11-20T06:16:40-05:00",
+    "python": "3.12.14",
+    "diagnosis_agent_version": "0.1.0",
+    "code_sha256": "f102592a30be59a33b33b7f7d258ce536001c6f19b350b7f2a303e95e4d28b8e",
+    "git_commit": "1e1ad313015711bf55ecd294f2e5e37d30c72ad2",
+    "git_clean_code": true
+  },
+  "result": {
+    "reason": "diagnosed",
+    "detail": "confidence 0.75",
+    "steps": 10,
+    "tool_calls": 8,
+    "seconds": 65.245,
+    "diagnosis": {
+      "hypothesis": "ledger-consumer does not dedupe provider events by event_id. The provider resent some webhooks. webhook-receiver published each copy to provider-events as a new message. payment-confirmer skipped the copies (\"refund already confirmed\"), but ledger-consumer booked every copy as a full transaction.\n\nThe duplicates explain the alert's gap exactly. Four payments were posted one extra time each, for +$134.47. One $8.75 refund was posted two extra times, for -$17.50. Net: +$116.97. The ledger stays balanced, and payments and refunds still match the provider.\n\nOpen questions:\n- Why ledger-consumer lost its dedupe. recent_deploys failed, so a LEDGER_HANDLER, image or restart change is unconfirmed.\n- Why the provider retried. The receiver logged no errors.\n- Only evt_000308 was traced in the logs; the other four duplicates are assumed to follow the same pattern.",
+      "evidence": [
+        {
+          "call_id": "c1",
+          "tool": "money_check",
+          "arguments": {},
+          "shows": "5 events were posted 2-3 times, with distinct transaction_ids. The ledger is balanced, and payments and refunds match the provider. The ledger is +$116.97 against the provider, which equals the duplicates' sum (+$134.47 - $17.50)."
+        },
+        {
+          "call_id": "c3",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "evt_000308",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "ledger-consumer posted evt_000308 three times, from provider-events/2 offsets 95, 96 and 97, each with a different trace_id."
+        },
+        {
+          "call_id": "c4",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "webhook-receiver",
+            "contains": "evt_000308",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "webhook-receiver queued evt_000308 three times (offsets 95-97) between 07:41:41 and 07:41:43. These were provider redeliveries, each published as a new message."
+        },
+        {
+          "call_id": "c6",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "payment-confirmer",
+            "contains": "evt_000308",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "payment-confirmer read the same three messages and answered \"refund already confirmed\" each time. Only the ledger consumer is not idempotent."
+        },
+        {
+          "call_id": "c5",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "ledger-consumer",
+            "contains": "duplicate",
+            "minutes": 120,
+            "limit": 20
+          },
+          "shows": "No \"duplicate\" lines from ledger-consumer in 2 h: no dedupe skips are logged."
+        },
+        {
+          "call_id": "c2",
+          "tool": "recent_deploys",
+          "arguments": {},
+          "shows": "Deploy and settings info was unavailable (Docker timeout), so the trigger for the lost dedupe is unconfirmed."
+        },
+        {
+          "call_id": "c8",
+          "tool": "search_logs",
+          "arguments": {
+            "service": "webhook-receiver",
+            "level": "ERROR",
+            "minutes": 60,
+            "limit": 20
+          },
+          "shows": "No webhook-receiver errors in 60 min, so the reason for the provider's resends is not visible."
+        }
+      ],
+      "confidence": 0.75,
+      "proposed_fix": {
+        "kind": "rollback",
+        "target": "ledger-consumer",
+        "summary": "1. Once Docker answers, check recent_deploys. Restore ledger-consumer's last known-good LEDGER_HANDLER or image, so it dedupes on event_id. If nothing changed, add the dedupe as a code change: a unique constraint, or a processed-events check in the same transaction.\n2. After human review, post compensating entries for the extra transactions: 292, 319, 322, 323, 359 and 381.\n3. Rerun the money check.\n4. Investigate the receiver's ack latency, which may explain the provider's retries.",
+        "applied": false
+      },
+      "blast_radius": "The rollback restarts ledger-consumer. Posting pauses briefly, then resumes from committed offsets. Any other changes in the current version would be lost.\n\nThe repair touches 6 ledger transactions. Reversing the wrong ones would skew per-payment balances, so verify each against the money check's evidence first.\n\nNo payment, refund or provider state changes.",
+      "rollback_plan": "Redeploy the current ledger-consumer image and settings, recorded before the change.\n\nThe compensating entries are ordinary transactions: undo them by posting their reversals. Nothing is deleted.\n\nRerun the money check after each step."
+    }
+  }
+}
